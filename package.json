@@ -1,0 +1,22 @@
+{
+  "name": "shoe-playground",
+  "version": "0.0.0",
+  "description": "Just a playground for shoe / sock.js",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thomaspeklak/shoe-playground.git"
+  },
+  "keywords": [
+    "websocket"
+  ],
+  "author": "Thomas Peklak",
+  "license": "BSD",
+  "dependencies": {
+    "shoe": "0.0.10",
+    "dnode": "~1.0.5"
+  }
+}
