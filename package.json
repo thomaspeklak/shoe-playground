@@ -21,5 +21,9 @@
     "ecstatic": "~0.4.2",
     "mux-demux": "~3.6.3",
     "event-stream": "~3.0.13"
+  },
+  "devDependencies" : {
+    "browserify" : "*",
+    "nodemon" : "*"
   }
 }
