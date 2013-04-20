@@ -17,6 +17,16 @@ var sock = shoe(function (stream) {
         },
         uppercase: function (s, cb) {
             cb(s.toUpperCase());
+        },
+        route: function (route, param, cb) {
+            if (route == "/test") {
+                return cb(null, {
+                    test: param
+                });
+            }
+
+            cb(new Error("unmatched route"));
+
         }
     });
     d.pipe(stream).pipe(d);

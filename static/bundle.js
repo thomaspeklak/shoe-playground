@@ -16,6 +16,20 @@
         remote.uppercase("beep", function (s) {
             result.textContent += "uppercase => " + s + "\n";
         });
+
+        remote.route("/test", 1, function (err, test) {
+            if (err) {
+                return result.textContent += "ERROR: " + err.message + "\n";
+            }
+            result.textContent += JSON.stringify(test) + "\n";
+        });
+
+        remote.route("/unmatched", 1, function (err, test) {
+            if (err) {
+                return result.textContent += "ERROR: " + err.message + "\n";
+            }
+            result.textContent += JSON.stringify(test);
+        });
     });
     d.pipe(stream).pipe(d);
 }());
