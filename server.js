@@ -21,13 +21,18 @@ var sock = shoe(function (stream) {
 
         if (stream.meta == "second") {
             setInterval( function () {
-prestream.write("second");
+                stream.write("second");
             }, 750);
         }
     });
 
     mdm.pipe(stream).pipe(mdm);
 
+    var first = mdm.createStream("first");
+
+    setInterval(function () {
+       first.write("another first");
+    }, 800);
 });
 
 

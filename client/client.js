@@ -8,6 +8,11 @@
     var stream = shoe("/socket");
     var mdm = MuxDemux(function (stream) {
         console.dir(stream);
+        if (stream.meta == "first") {
+            stream.on("data", function (data) {
+                messages.textContent += "FIRST FROM SERVER: " + data + "\n";
+            });
+        }
     });
 
     mdm.pipe(stream).pipe(mdm);
