@@ -6,7 +6,9 @@
     var messages = document.getElementById("messages");
 
     var stream = shoe("/socket");
-    var mdm = MuxDemux(function (stream) {
+    var mdm = MuxDemux();
+
+    mdm.on("connection", function (stream) {
         console.dir(stream);
         if (stream.meta == "first") {
             stream.on("data", function (data) {
