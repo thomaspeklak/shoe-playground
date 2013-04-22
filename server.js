@@ -2,6 +2,7 @@
 
 var shoe = require("shoe");
 var http = require("http");
+var dnode = require("dnode");
 var MuxDemux = require('mux-demux');
 
 var ecstatic = require("ecstatic")(__dirname + "/static");

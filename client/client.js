@@ -2,6 +2,7 @@
     "use strict";
     var shoe = require("shoe");
     var MuxDemux = require("mux-demux");
+    var dnode = require("dnode");
 
     var messages = document.getElementById("messages");
 
