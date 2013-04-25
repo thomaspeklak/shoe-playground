@@ -32,6 +32,10 @@
         remote.start(function (res) {
             console.dir(res);
         });
+
+        remote.echo("echo me", function (s) {
+            console.dir(s);
+        });
     });
 
     rpc.pipe(d).pipe(rpc);

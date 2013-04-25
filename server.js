@@ -14,6 +14,9 @@ var sock = shoe(function (stream) {
     console.dir("CONNECTION");
     var streams = [];
     var d = dnode({
+        echo: function (s, cb) {
+           cb(s);
+        },
         start: function (cb) {
             streams.forEach(function (stream) {
                 stream.timer = setInterval(function () {
@@ -29,26 +32,27 @@ var sock = shoe(function (stream) {
             cb("stopped");
         }
     });
-    var mdm = MuxDemux(function (stream) {
-        if (stream.meta == "first") {
+    var mdm = MuxDemux(function (mdmstream) {
+        if (mdmstream.meta == "first") {
             console.dir("FIRST CONNECTED");
             streams.push({
                 meta: "first",
-                stream: stream
+                stream: mdmstream
             });
         }
 
-        if (stream.meta == "second") {
+        if (mdmstream.meta == "second") {
             console.dir("SECOND CONNECTED");
             streams.push({
                 meta: "second",
-                stream: stream
+                stream: mdmstream
             });
         }
 
-        if (stream.meta == "rpc") {
+        if (mdmstream.meta == "rpc") {
             console.dir("RPC CONNECTED");
-            d.pipe(stream).pipe(d);
+            mdmstream.on("data", function () { console.dir(arguments); });
+            d.pipe(mdmstream).pipe(d);
         }
 
     });
