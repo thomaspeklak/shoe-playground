@@ -15,7 +15,8 @@ var sock = shoe(function (stream) {
     var streams = [];
     var d = dnode({
         echo: function (s, cb) {
-           cb(s);
+            cb(s + " from SERVER");
+            console.dir("ECHO");
         },
         start: function (cb) {
             streams.forEach(function (stream) {
@@ -24,17 +25,18 @@ var sock = shoe(function (stream) {
                 }, parseInt(Math.random() * 1000, 10));
             });
             cb("started");
+            console.dir("STARTED");
         },
         stop: function (cb) {
             streams.forEach(function (stream) {
                 clearInterval(stream.timer);
             });
             cb("stopped");
+            console.dir("STOPPED");
         }
     });
     var mdm = MuxDemux(function (mdmstream) {
         if (mdmstream.meta == "first") {
-            console.dir("FIRST CONNECTED");
             streams.push({
                 meta: "first",
                 stream: mdmstream
@@ -42,23 +44,28 @@ var sock = shoe(function (stream) {
         }
 
         if (mdmstream.meta == "second") {
-            console.dir("SECOND CONNECTED");
             streams.push({
                 meta: "second",
                 stream: mdmstream
             });
         }
 
-        if (mdmstream.meta == "rpc") {
-            console.dir("RPC CONNECTED");
-            mdmstream.on("data", function () { console.dir(arguments); });
-            d.pipe(mdmstream).pipe(d);
-        }
+        console.dir(mdmstream.meta);
+    });
 
+
+    var l = function () {
+        console.dir(arguments)
+    };
+    mdm.on("error", function () {
+        stream.end();
+    });
+    stream.on("error", function () {
+        mdm.end();
     });
 
     mdm.pipe(stream).pipe(mdm);
+    d.pipe(mdm.createStream("rpc")).pipe(d);
 });
-
 
 sock.install(server, "/socket");
