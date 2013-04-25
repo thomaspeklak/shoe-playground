@@ -11,11 +11,6 @@
 
     mdm.on("connection", function (stream) {
         console.dir(stream);
-        if (stream.meta == "first") {
-            stream.on("data", function (data) {
-                messages.textContent += "FIRST FROM SERVER: " + data + "\n";
-            });
-        }
     });
 
     mdm.pipe(stream).pipe(mdm);
@@ -29,5 +24,16 @@
     second.on("data", function (data) {
         messages.textContent += "SECOND: " + data + "\n";
     });
+
+    var rpc = mdm.createStream("rpc");
+    var d = dnode();
+    d.on("remote", function (remote) {
+        console.dir("REMOTE");
+        remote.start(function (res) {
+            console.dir(res);
+        });
+    });
+
+    rpc.pipe(d).pipe(rpc);
 
 }());

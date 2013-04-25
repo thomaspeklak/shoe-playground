@@ -12,11 +12,6 @@
 
     mdm.on("connection", function (stream) {
         console.dir(stream);
-        if (stream.meta == "first") {
-            stream.on("data", function (data) {
-                messages.textContent += "FIRST FROM SERVER: " + data + "\n";
-            });
-        }
     });
 
     mdm.pipe(stream).pipe(mdm);
@@ -31,9 +26,20 @@
         messages.textContent += "SECOND: " + data + "\n";
     });
 
+    var rpc = mdm.createStream("rpc");
+    var d = dnode();
+    d.on("remote", function (remote) {
+        console.dir("REMOTE");
+        remote.start(function (res) {
+            console.dir(res);
+        });
+    });
+
+    rpc.pipe(d).pipe(rpc);
+
 }());
 
-},{"shoe":2,"mux-demux":3,"dnode":4}],5:[function(require,module,exports){
+},{"shoe":2,"dnode":3,"mux-demux":4}],5:[function(require,module,exports){
 var events = require('events');
 var util = require('util');
 
@@ -154,7 +160,14 @@ Stream.prototype.pipe = function(dest, options) {
   return dest;
 };
 
-},{"events":6,"util":7}],8:[function(require,module,exports){
+},{"events":6,"util":7}],3:[function(require,module,exports){
+var dnode = require('./lib/dnode');
+
+module.exports = function (cons, opts) {
+    return new dnode(cons, opts);
+};
+
+},{"./lib/dnode":8}],9:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -394,7 +407,7 @@ EventEmitter.prototype.listeners = function(type) {
 };
 
 })(require("__browserify_process"))
-},{"__browserify_process":8}],7:[function(require,module,exports){
+},{"__browserify_process":9}],7:[function(require,module,exports){
 var events = require('events');
 
 exports.isArray = isArray;
@@ -818,14 +831,7 @@ module.exports = function (uri, cb) {
     return stream;
 };
 
-},{"stream":5,"sockjs-client":9}],4:[function(require,module,exports){
-var dnode = require('./lib/dnode');
-
-module.exports = function (cons, opts) {
-    return new dnode(cons, opts);
-};
-
-},{"./lib/dnode":10}],3:[function(require,module,exports){
+},{"stream":5,"sockjs-client":10}],4:[function(require,module,exports){
 'use strict';
 
 var through = require('through')
@@ -1009,7 +1015,7 @@ function MuxDemux (opts, onConnection) {
 module.exports = MuxDemux
 
 
-},{"through":11,"xtend":12,"duplex":13,"stream-serializer":14}],9:[function(require,module,exports){
+},{"through":11,"xtend":12,"duplex":13,"stream-serializer":14}],10:[function(require,module,exports){
 (function(){/* SockJS client, version 0.3.1.7.ga67f.dirty, http://sockjs.org, MIT License
 
 Copyright (c) 2011-2012 VMware, Inc.
@@ -3443,7 +3449,7 @@ function through (write, end, opts) {
 
 
 })(require("__browserify_process"))
-},{"stream":5,"__browserify_process":8}],12:[function(require,module,exports){
+},{"stream":5,"__browserify_process":9}],12:[function(require,module,exports){
 module.exports = extend
 
 function extend(target) {
@@ -3606,7 +3612,7 @@ module.exports = function (write, end) {
 
 
 })(require("__browserify_process"))
-},{"stream":5,"__browserify_process":8}],14:[function(require,module,exports){
+},{"stream":5,"__browserify_process":9}],14:[function(require,module,exports){
 
 var EventEmitter = require('events').EventEmitter
 
@@ -3676,7 +3682,7 @@ exports.raw = function (stream) {
 }
 
 
-},{"events":6}],10:[function(require,module,exports){
+},{"events":6}],8:[function(require,module,exports){
 (function(process){var protocol = require('dnode-protocol');
 var Stream = require('stream');
 var json = typeof JSON === 'object' ? JSON : require('jsonify');
@@ -3832,7 +3838,7 @@ dnode.prototype.destroy = function () {
 };
 
 })(require("__browserify_process"))
-},{"stream":5,"dnode-protocol":15,"jsonify":16,"__browserify_process":8}],15:[function(require,module,exports){
+},{"stream":5,"dnode-protocol":15,"jsonify":16,"__browserify_process":9}],15:[function(require,module,exports){
 var EventEmitter = require('events').EventEmitter;
 var scrubber = require('./lib/scrub');
 var objectKeys = require('./lib/keys');
@@ -3959,7 +3965,11 @@ Proto.prototype.apply = function (f, args) {
     catch (err) { this.emit('error', err) }
 };
 
-},{"events":6,"./lib/scrub":17,"./lib/keys":18,"./lib/foreach":19,"./lib/is_enum":20}],18:[function(require,module,exports){
+},{"events":6,"./lib/scrub":17,"./lib/keys":18,"./lib/foreach":19,"./lib/is_enum":20}],16:[function(require,module,exports){
+exports.parse = require('./lib/parse');
+exports.stringify = require('./lib/stringify');
+
+},{"./lib/parse":21,"./lib/stringify":22}],18:[function(require,module,exports){
 module.exports = Object.keys || function (obj) {
     var keys = [];
     for (var key in obj) keys.push(key);
@@ -3974,25 +3984,7 @@ module.exports = function forEach (xs, f) {
     }
 }
 
-},{}],16:[function(require,module,exports){
-exports.parse = require('./lib/parse');
-exports.stringify = require('./lib/stringify');
-
-},{"./lib/parse":21,"./lib/stringify":22}],20:[function(require,module,exports){
-var objectKeys = require('./keys');
-
-module.exports = function (obj, key) {
-    if (Object.prototype.propertyIsEnumerable) {
-        return Object.prototype.propertyIsEnumerable.call(obj, key);
-    }
-    var keys = objectKeys(obj);
-    for (var i = 0; i < keys.length; i++) {
-        if (key === keys[i]) return true;
-    }
-    return false;
-};
-
-},{"./keys":18}],21:[function(require,module,exports){
+},{}],21:[function(require,module,exports){
 var at, // The index of the current character
     ch, // The current character
     escapee = {
@@ -4423,7 +4415,21 @@ module.exports = function (value, replacer, space) {
     return str('', {'': value});
 };
 
-},{}],17:[function(require,module,exports){
+},{}],20:[function(require,module,exports){
+var objectKeys = require('./keys');
+
+module.exports = function (obj, key) {
+    if (Object.prototype.propertyIsEnumerable) {
+        return Object.prototype.propertyIsEnumerable.call(obj, key);
+    }
+    var keys = objectKeys(obj);
+    for (var i = 0; i < keys.length; i++) {
+        if (key === keys[i]) return true;
+    }
+    return false;
+};
+
+},{"./keys":18}],17:[function(require,module,exports){
 var traverse = require('traverse');
 var objectKeys = require('./keys');
 var forEach = require('./foreach');
