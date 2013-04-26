@@ -1,6 +1,6 @@
 (function () {
     "use strict";
-    var shoe = require("shoe");
+    var reconnect = require("reconnect");
     var MuxDemux = require("mux-demux");
     var dnode = require("dnode");
     var l = function (err) {
@@ -13,49 +13,52 @@
 
     var messages = document.getElementById("messages");
 
-    var stream = shoe("/socket");
-    var mdm = MuxDemux();
+    reconnect(function (stream) {
 
-    mdm.pipe(stream).pipe(mdm);
+        var mdm = MuxDemux();
 
-    mdm.on("error", l);
-    stream.on("error", l);
+        mdm.pipe(stream).pipe(mdm);
 
-    var first = mdm.createStream("first");
-    first.on("data", function (data) {
-        messages.textContent += "FIRST: " + data + "\n";
-    });
+        mdm.on("error", l);
+        stream.on("error", l);
 
-    var second = mdm.createStream("second");
-    second.on("data", function (data) {
-        messages.textContent += "SECOND: " + data + "\n";
-    });
-
-    var d = dnode();
-    d.on("remote", function (remote) {
-        remote.echo("echo me", function (s) {
-            console.log(s);
+        var first = mdm.createStream("first");
+        first.on("data", function (data) {
+            messages.textContent += "FIRST: " + data + "\n";
         });
 
-        document.getElementById("start").addEventListener("click", function (e) {
-            e.preventDefault();
-            remote.start(function (s) {console.dir(s)});
+        var second = mdm.createStream("second");
+        second.on("data", function (data) {
+            messages.textContent += "SECOND: " + data + "\n";
         });
 
-        document.getElementById("stop").addEventListener("click", function (e) {
-            e.preventDefault();
-            remote.stop(function (s) {console.dir(s)});
+        var d = dnode();
+        d.on("remote", function (remote) {
+            remote.echo("echo me", function (s) {
+                console.log(s);
+            });
+
+            document.getElementById("start").addEventListener("click", function (e) {
+                e.preventDefault();
+                remote.start(function (s) {console.dir(s)});
+            });
+
+            document.getElementById("stop").addEventListener("click", function (e) {
+                e.preventDefault();
+                remote.stop(function (s) {console.dir(s)});
+            });
         });
-    });
 
-    d.on("error", l);
-    d.on("end", l);
-    d.on("fail", l);
+        d.on("error", l);
+        d.on("end", l);
+        d.on("fail", l);
 
-    mdm.on("connection", function (stream) {
-        if (stream.meta == "rpc") {
-            console.log("RPC CONNECTED");
-            stream.pipe(d).pipe(stream);
-        }
-    });
+        mdm.on("connection", function (stream) {
+            if (stream.meta == "rpc") {
+                console.log("RPC CONNECTED");
+                stream.pipe(d).pipe(stream);
+            }
+        });
+
+    }).connect("/socket");
 }());
