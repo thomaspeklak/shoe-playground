@@ -20,6 +20,8 @@ var sock = shoe(function (stream) {
         },
         start: function (cb) {
             streams.forEach(function (stream) {
+                if (stream.timer) return;
+
                 stream.timer = setInterval(function () {
                     stream.stream.write(stream.meta);
                 }, parseInt(Math.random() * 1000, 10));
@@ -30,6 +32,7 @@ var sock = shoe(function (stream) {
         stop: function (cb) {
             streams.forEach(function (stream) {
                 clearInterval(stream.timer);
+                stream.timer = null;
             });
             cb("stopped");
             console.dir("STOPPED");
