@@ -23,7 +23,11 @@
     "event-stream": "~3.0.13",
     "stream-router": "~0.1.0",
     "remote-events": "~1.1.2",
-    "reconnect": "~1.1.1"
+    "reconnect": "~1.1.1",
+    "crdt": "~3.5.1",
+    "scuttlebutt": "~5.5.20",
+    "multi-channel-mdm": "~0.5.1",
+    "kv": "~1.1.1"
   },
   "devDependencies": {
     "browserify": "*",
