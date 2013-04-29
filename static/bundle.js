@@ -14,6 +14,7 @@
         });
     };
 
+    var highest = document.getElementById("highest");
     var messages = document.getElementById("messages");
     var texts = document.getElementById("texts");
 
@@ -43,6 +44,18 @@
         var textSet = doc.createSet("type", "text");
         textSet.on("add", function (row) {
            texts.textContent += "NEW TEXT: " + row.get("text") + "\n";
+        });
+
+        var numbersSeq = doc.createSeq("type", "number");
+        numbersSeq.on("add", function () {
+            var numbers = [];
+            var number = numbersSeq.first();
+            numbers.push(number.get("number"));
+            while((number = numbersSeq.next(number)) && numbers.length < 5) {
+                numbers.push(number.get("number"));
+            }
+
+            highest.textContent = numbers.join("\n");
         });
 
         var d = dnode();
@@ -1925,113 +1938,6 @@ exports.sort = function (hist) {
   })
 }
 
-},{}],23:[function(require,module,exports){
-
-function inject (chars) {
-
-  chars = chars ||
-  '!0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz~'
-
-  chars = chars.split('').sort().join('')
-
-  var exports = between
-
-  exports.between   = between
-
-  exports.randstr   = randstr
-  exports.between   = between
-  exports.strord    = strord
-
-  exports.lo        = chars[0]
-  exports.hi        = chars[chars.length - 1]
-
-  exports.inject    = inject
-
-  function randstr(l) {
-    var str = ''
-    while(l--) 
-      str += chars[
-        Math.floor(
-          Math.random() * chars.length 
-        )
-      ]
-    return str
-  }
-
-  /*
-    SOME EXAMPLE STRINGS, IN ORDER
-   
-    0
-    00001
-    0001
-    001
-    001001
-    00101
-    0011
-    0011001
-    001100101
-    00110011
-    001101
-    00111
-    01  
-
-    if you never make a string that ends in the lowest char,
-    then it is always possible to make a string between two strings.
-    this is like how decimals never end in 0. 
-
-    example:
-
-    between('A', 'AB') 
-
-    ... 'AA' will sort between 'A' and 'AB' but then it is impossible
-    to make a string inbetween 'A' and 'AA'.
-    instead, return 'AAB', then there will be space.
-
-  */
-
-  function between (a, b) {
-
-    var s = '', i = 0
-
-    while (true) {
-
-      var _a = chars.indexOf(a[i])
-      var _b = chars.indexOf(b[i])
-     
-      if(_a == -1) _a = 0
-      if(_b == -1) _b = chars.length - 1
-
-      i++
-
-      var c = chars[
-          _a + 1 < _b 
-        ? Math.round((_a+_b)/2)
-        : _a
-      ]
-
-      s += c
-
-      if(a < s && s < b && c != exports.lo)
-        return s;
-    }
-  }
-
-  function strord (a, b) {
-    return (
-      a == b ?  0
-    : a <  b ? -1
-    :           1
-    )
-  }
-
-  between.strord
-
-  return between
-}
-
-
-module.exports = inject(null)
-
 },{}],9:[function(require,module,exports){
 (function(process){var protocol = require('dnode-protocol');
 var Stream = require('stream');
@@ -2188,7 +2094,7 @@ dnode.prototype.destroy = function () {
 };
 
 })(require("__browserify_process"))
-},{"stream":20,"dnode-protocol":25,"jsonify":26,"__browserify_process":8}],15:[function(require,module,exports){
+},{"stream":20,"jsonify":25,"dnode-protocol":26,"__browserify_process":8}],15:[function(require,module,exports){
 var Stream = require('stream');
 var sockjs = require('sockjs-client');
 
@@ -2256,7 +2162,114 @@ module.exports = function (uri, cb) {
     return stream;
 };
 
-},{"stream":20,"sockjs-client":27}],10:[function(require,module,exports){
+},{"stream":20,"sockjs-client":27}],23:[function(require,module,exports){
+
+function inject (chars) {
+
+  chars = chars ||
+  '!0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz~'
+
+  chars = chars.split('').sort().join('')
+
+  var exports = between
+
+  exports.between   = between
+
+  exports.randstr   = randstr
+  exports.between   = between
+  exports.strord    = strord
+
+  exports.lo        = chars[0]
+  exports.hi        = chars[chars.length - 1]
+
+  exports.inject    = inject
+
+  function randstr(l) {
+    var str = ''
+    while(l--) 
+      str += chars[
+        Math.floor(
+          Math.random() * chars.length 
+        )
+      ]
+    return str
+  }
+
+  /*
+    SOME EXAMPLE STRINGS, IN ORDER
+   
+    0
+    00001
+    0001
+    001
+    001001
+    00101
+    0011
+    0011001
+    001100101
+    00110011
+    001101
+    00111
+    01  
+
+    if you never make a string that ends in the lowest char,
+    then it is always possible to make a string between two strings.
+    this is like how decimals never end in 0. 
+
+    example:
+
+    between('A', 'AB') 
+
+    ... 'AA' will sort between 'A' and 'AB' but then it is impossible
+    to make a string inbetween 'A' and 'AA'.
+    instead, return 'AAB', then there will be space.
+
+  */
+
+  function between (a, b) {
+
+    var s = '', i = 0
+
+    while (true) {
+
+      var _a = chars.indexOf(a[i])
+      var _b = chars.indexOf(b[i])
+     
+      if(_a == -1) _a = 0
+      if(_b == -1) _b = chars.length - 1
+
+      i++
+
+      var c = chars[
+          _a + 1 < _b 
+        ? Math.round((_a+_b)/2)
+        : _a
+      ]
+
+      s += c
+
+      if(a < s && s < b && c != exports.lo)
+        return s;
+    }
+  }
+
+  function strord (a, b) {
+    return (
+      a == b ?  0
+    : a <  b ? -1
+    :           1
+    )
+  }
+
+  between.strord
+
+  return between
+}
+
+
+module.exports = inject(null)
+
+},{}],10:[function(require,module,exports){
 var inherits     = require('util').inherits
 var Row          = require('./row')
 var between      = require('between')
@@ -5210,6 +5223,10 @@ else                           this.observable = exports
 })()
 
 },{}],25:[function(require,module,exports){
+exports.parse = require('./lib/parse');
+exports.stringify = require('./lib/stringify');
+
+},{"./lib/parse":34,"./lib/stringify":35}],26:[function(require,module,exports){
 var EventEmitter = require('events').EventEmitter;
 var scrubber = require('./lib/scrub');
 var objectKeys = require('./lib/keys');
@@ -5336,26 +5353,7 @@ Proto.prototype.apply = function (f, args) {
     catch (err) { this.emit('error', err) }
 };
 
-},{"events":7,"./lib/scrub":34,"./lib/keys":35,"./lib/foreach":36,"./lib/is_enum":37}],26:[function(require,module,exports){
-exports.parse = require('./lib/parse');
-exports.stringify = require('./lib/stringify');
-
-},{"./lib/parse":38,"./lib/stringify":39}],35:[function(require,module,exports){
-module.exports = Object.keys || function (obj) {
-    var keys = [];
-    for (var key in obj) keys.push(key);
-    return keys;
-};
-
-},{}],36:[function(require,module,exports){
-module.exports = function forEach (xs, f) {
-    if (xs.forEach) return xs.forEach(f)
-    for (var i = 0; i < xs.length; i++) {
-        f.call(xs, xs[i], i);
-    }
-}
-
-},{}],38:[function(require,module,exports){
+},{"events":7,"./lib/scrub":36,"./lib/keys":37,"./lib/foreach":38,"./lib/is_enum":39}],34:[function(require,module,exports){
 var at, // The index of the current character
     ch, // The current character
     escapee = {
@@ -5630,7 +5628,7 @@ module.exports = function (source, reviver) {
     }({'': result}, '')) : result;
 };
 
-},{}],39:[function(require,module,exports){
+},{}],35:[function(require,module,exports){
 var cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
     escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
     gap,
@@ -5785,6 +5783,21 @@ module.exports = function (value, replacer, space) {
     // Return the result of stringifying the value.
     return str('', {'': value});
 };
+
+},{}],37:[function(require,module,exports){
+module.exports = Object.keys || function (obj) {
+    var keys = [];
+    for (var key in obj) keys.push(key);
+    return keys;
+};
+
+},{}],38:[function(require,module,exports){
+module.exports = function forEach (xs, f) {
+    if (xs.forEach) return xs.forEach(f)
+    for (var i = 0; i < xs.length; i++) {
+        f.call(xs, xs[i], i);
+    }
+}
 
 },{}],30:[function(require,module,exports){
 /*
@@ -6157,7 +6170,7 @@ sb.clone = function () {
 
 
 })(require("__browserify_process"))
-},{"events":7,"util":6,"./util":24,"iterate":41,"duplex":42,"stream-serializer":43,"monotonic-timestamp":44,"__browserify_process":8}],37:[function(require,module,exports){
+},{"events":7,"util":6,"./util":24,"iterate":41,"duplex":42,"stream-serializer":43,"monotonic-timestamp":44,"__browserify_process":8}],39:[function(require,module,exports){
 var objectKeys = require('./keys');
 
 module.exports = function (obj, key) {
@@ -6171,7 +6184,106 @@ module.exports = function (obj, key) {
     return false;
 };
 
-},{"./keys":35}],41:[function(require,module,exports){
+},{"./keys":37}],40:[function(require,module,exports){
+/*
+ * Copyright (c) 2012 Mathieu Turcotte
+ * Licensed under the MIT license.
+ */
+
+var events = require('events'),
+    util = require('util');
+
+function isDef(value) {
+    return value !== undefined && value !== null;
+}
+
+/**
+ * Abstract class defining the skeleton for all backoff strategies.
+ * @param options Backoff strategy options.
+ * @param options.randomisationFactor The randomisation factor, must be between
+ * 0 and 1.
+ * @param options.initialDelay The backoff initial delay, in milliseconds.
+ * @param options.maxDelay The backoff maximal delay, in milliseconds.
+ * @constructor
+ */
+function BackoffStrategy(options) {
+    options = options || {};
+
+    if (isDef(options.initialDelay) && options.initialDelay < 1) {
+        throw new Error('The initial timeout must be greater than 0.');
+    } else if (isDef(options.maxDelay) && options.maxDelay < 1) {
+        throw new Error('The maximal timeout must be greater than 0.');
+    }
+
+    this.initialDelay_ = options.initialDelay || 100;
+    this.maxDelay_ = options.maxDelay || 10000;
+
+    if (this.maxDelay_ <= this.initialDelay_) {
+        throw new Error('The maximal backoff delay must be ' +
+                        'greater than the initial backoff delay.');
+    }
+
+    if (isDef(options.randomisationFactor) &&
+        (options.randomisationFactor < 0 || options.randomisationFactor > 1)) {
+        throw new Error('The randomisation factor must be between 0 and 1.');
+    }
+
+    this.randomisationFactor_ = options.randomisationFactor || 0;
+}
+
+/**
+ * Retrieves the maximal backoff delay.
+ * @return The maximal backoff delay.
+ */
+BackoffStrategy.prototype.getMaxDelay = function() {
+    return this.maxDelay_;
+};
+
+/**
+ * Retrieves the initial backoff delay.
+ * @return The initial backoff delay.
+ */
+BackoffStrategy.prototype.getInitialDelay = function() {
+    return this.initialDelay_;
+};
+
+/**
+ * Template method that computes the next backoff delay.
+ * @return The backoff delay, in milliseconds.
+ */
+BackoffStrategy.prototype.next = function() {
+    var backoffDelay = this.next_();
+    var randomisationMultiple = 1 + Math.random() * this.randomisationFactor_;
+    var randomizedDelay = Math.round(backoffDelay * randomisationMultiple);
+    return randomizedDelay;
+};
+
+/**
+ * Computes the next backoff delay.
+ * @return The backoff delay, in milliseconds.
+ */
+BackoffStrategy.prototype.next_ = function() {
+    throw new Error('BackoffStrategy.next_() unimplemented.');
+};
+
+/**
+ * Template method that resets the backoff delay to its initial value.
+ */
+BackoffStrategy.prototype.reset = function() {
+    this.reset_();
+};
+
+/**
+ * Resets the backoff delay to its initial value.
+ */
+BackoffStrategy.prototype.reset_ = function() {
+    throw new Error('BackoffStrategy.reset_() unimplemented.');
+};
+
+module.exports = BackoffStrategy;
+
+
+},{"events":7,"util":6}],41:[function(require,module,exports){
 
 //
 // adds all the fields from obj2 onto obj1
@@ -6325,106 +6437,116 @@ var join = exports.join = function (A, B, it) {
   })
 }
 
-},{}],40:[function(require,module,exports){
-/*
- * Copyright (c) 2012 Mathieu Turcotte
- * Licensed under the MIT license.
- */
+},{}],32:[function(require,module,exports){
+var split = require('browser-split')
+var ClassList = require('class-list')
 
-var events = require('events'),
-    util = require('util');
+module.exports = h
 
-function isDef(value) {
-    return value !== undefined && value !== null;
+function h() {
+  var args = [].slice.call(arguments), e = null
+  function item (l) {
+    var r
+    function parseClass (string) {
+      var m = split(string, /([\.#]?[a-zA-Z0-9_-]+)/)
+      forEach(m, function (v) {
+        var s = v.substring(1,v.length)
+        if(!v) return
+        if(!e)
+          e = document.createElement(v)
+        else if (v[0] === '.')
+          ClassList(e).add(s)
+        else if (v[0] === '#')
+          e.setAttribute('id', s)
+      })
+    }
+
+    if(l == null)
+      ;
+    else if('string' === typeof l) {
+      if(!e)
+        parseClass(l)
+      else
+        e.appendChild(r = document.createTextNode(l))
+    }
+    else if('number' === typeof l
+      || 'boolean' === typeof l
+      || l instanceof Date
+      || l instanceof RegExp ) {
+        e.appendChild(r = document.createTextNode(l.toString()))
+    }
+    //there might be a better way to handle this...
+    else if (isArray(l))
+      forEach(l, item)
+    else if(isNode(l))
+      e.appendChild(r = l)
+    else if(l instanceof Text)
+      e.appendChild(r = l)
+    else if ('object' === typeof l) {
+      for (var k in l) {
+        if('function' === typeof l[k]) {
+          if(/^on\w+/.test(k)) {
+            e.addEventListener
+              ? e.addEventListener(k.substring(2), l[k])
+              : e.attachEvent(k, l[k])
+          } else {
+            e[k] = l[k]()
+            l[k](function (v) {
+              e[k] = v
+            })
+          }
+        }
+        else if(k === 'style') {
+          for (var s in l[k]) (function(s, v) {
+            if('function' === typeof v) {
+              e.style.setProperty(s, v())
+              v(function (val) {
+                e.style.setProperty(s, val)
+              })
+            } else
+              e.style.setProperty(s, l[k][s])
+          })(s, l[k][s])
+        } else
+          e[k] = l[k]
+      }
+    } else if ('function' === typeof l) {
+      //assume it's an observable!
+      var v = l()
+      e.appendChild(r = isNode(v) ? v : document.createTextNode(v))
+
+      l(function (v) {
+        if(isNode(v) && r.parentElement)
+          r.parentElement.replaceChild(v, r), r = v
+        else
+          r.textContent = v
+      })
+
+    }
+
+    return r
+  }
+  while(args.length)
+    item(args.shift())
+
+  return e
 }
 
-/**
- * Abstract class defining the skeleton for all backoff strategies.
- * @param options Backoff strategy options.
- * @param options.randomisationFactor The randomisation factor, must be between
- * 0 and 1.
- * @param options.initialDelay The backoff initial delay, in milliseconds.
- * @param options.maxDelay The backoff maximal delay, in milliseconds.
- * @constructor
- */
-function BackoffStrategy(options) {
-    options = options || {};
-
-    if (isDef(options.initialDelay) && options.initialDelay < 1) {
-        throw new Error('The initial timeout must be greater than 0.');
-    } else if (isDef(options.maxDelay) && options.maxDelay < 1) {
-        throw new Error('The maximal timeout must be greater than 0.');
-    }
-
-    this.initialDelay_ = options.initialDelay || 100;
-    this.maxDelay_ = options.maxDelay || 10000;
-
-    if (this.maxDelay_ <= this.initialDelay_) {
-        throw new Error('The maximal backoff delay must be ' +
-                        'greater than the initial backoff delay.');
-    }
-
-    if (isDef(options.randomisationFactor) &&
-        (options.randomisationFactor < 0 || options.randomisationFactor > 1)) {
-        throw new Error('The randomisation factor must be between 0 and 1.');
-    }
-
-    this.randomisationFactor_ = options.randomisationFactor || 0;
+function isNode (el) {
+  return typeof Node != 'undefined'
+    ? el instanceof Node
+    : el instanceof Element
 }
 
-/**
- * Retrieves the maximal backoff delay.
- * @return The maximal backoff delay.
- */
-BackoffStrategy.prototype.getMaxDelay = function() {
-    return this.maxDelay_;
-};
+function forEach (arr, fn) {
+  if (arr.forEach) return arr.forEach(fn)
+  for (var i = 0; i < arr.length; i++) fn(arr[i], i)
+}
 
-/**
- * Retrieves the initial backoff delay.
- * @return The initial backoff delay.
- */
-BackoffStrategy.prototype.getInitialDelay = function() {
-    return this.initialDelay_;
-};
+function isArray (arr) {
+  return Object.prototype.toString.call(arr) == '[object Array]'
+}
 
-/**
- * Template method that computes the next backoff delay.
- * @return The backoff delay, in milliseconds.
- */
-BackoffStrategy.prototype.next = function() {
-    var backoffDelay = this.next_();
-    var randomisationMultiple = 1 + Math.random() * this.randomisationFactor_;
-    var randomizedDelay = Math.round(backoffDelay * randomisationMultiple);
-    return randomizedDelay;
-};
-
-/**
- * Computes the next backoff delay.
- * @return The backoff delay, in milliseconds.
- */
-BackoffStrategy.prototype.next_ = function() {
-    throw new Error('BackoffStrategy.next_() unimplemented.');
-};
-
-/**
- * Template method that resets the backoff delay to its initial value.
- */
-BackoffStrategy.prototype.reset = function() {
-    this.reset_();
-};
-
-/**
- * Resets the backoff delay to its initial value.
- */
-BackoffStrategy.prototype.reset_ = function() {
-    throw new Error('BackoffStrategy.reset_() unimplemented.');
-};
-
-module.exports = BackoffStrategy;
-
-
-},{"events":7,"util":6}],42:[function(require,module,exports){
+},{"browser-split":45,"class-list":46}],42:[function(require,module,exports){
 (function(process){var Stream = require('stream')
 
 module.exports = function (write, end) {
@@ -6688,116 +6810,7 @@ function timestamp() {
   return adjusted
 }
 
-},{}],32:[function(require,module,exports){
-var split = require('browser-split')
-var ClassList = require('class-list')
-
-module.exports = h
-
-function h() {
-  var args = [].slice.call(arguments), e = null
-  function item (l) {
-    var r
-    function parseClass (string) {
-      var m = split(string, /([\.#]?[a-zA-Z0-9_-]+)/)
-      forEach(m, function (v) {
-        var s = v.substring(1,v.length)
-        if(!v) return
-        if(!e)
-          e = document.createElement(v)
-        else if (v[0] === '.')
-          ClassList(e).add(s)
-        else if (v[0] === '#')
-          e.setAttribute('id', s)
-      })
-    }
-
-    if(l == null)
-      ;
-    else if('string' === typeof l) {
-      if(!e)
-        parseClass(l)
-      else
-        e.appendChild(r = document.createTextNode(l))
-    }
-    else if('number' === typeof l
-      || 'boolean' === typeof l
-      || l instanceof Date
-      || l instanceof RegExp ) {
-        e.appendChild(r = document.createTextNode(l.toString()))
-    }
-    //there might be a better way to handle this...
-    else if (isArray(l))
-      forEach(l, item)
-    else if(isNode(l))
-      e.appendChild(r = l)
-    else if(l instanceof Text)
-      e.appendChild(r = l)
-    else if ('object' === typeof l) {
-      for (var k in l) {
-        if('function' === typeof l[k]) {
-          if(/^on\w+/.test(k)) {
-            e.addEventListener
-              ? e.addEventListener(k.substring(2), l[k])
-              : e.attachEvent(k, l[k])
-          } else {
-            e[k] = l[k]()
-            l[k](function (v) {
-              e[k] = v
-            })
-          }
-        }
-        else if(k === 'style') {
-          for (var s in l[k]) (function(s, v) {
-            if('function' === typeof v) {
-              e.style.setProperty(s, v())
-              v(function (val) {
-                e.style.setProperty(s, val)
-              })
-            } else
-              e.style.setProperty(s, l[k][s])
-          })(s, l[k][s])
-        } else
-          e[k] = l[k]
-      }
-    } else if ('function' === typeof l) {
-      //assume it's an observable!
-      var v = l()
-      e.appendChild(r = isNode(v) ? v : document.createTextNode(v))
-
-      l(function (v) {
-        if(isNode(v) && r.parentElement)
-          r.parentElement.replaceChild(v, r), r = v
-        else
-          r.textContent = v
-      })
-
-    }
-
-    return r
-  }
-  while(args.length)
-    item(args.shift())
-
-  return e
-}
-
-function isNode (el) {
-  return typeof Node != 'undefined'
-    ? el instanceof Node
-    : el instanceof Element
-}
-
-function forEach (arr, fn) {
-  if (arr.forEach) return arr.forEach(fn)
-  for (var i = 0; i < arr.length; i++) fn(arr[i], i)
-}
-
-function isArray (arr) {
-  return Object.prototype.toString.call(arr) == '[object Array]'
-}
-
-},{"browser-split":45,"class-list":46}],45:[function(require,module,exports){
+},{}],45:[function(require,module,exports){
 (function(){/*!
  * Cross-Browser Split 1.1.1
  * Copyright 2007-2012 Steven Levithan <stevenlevithan.com>
@@ -7006,7 +7019,7 @@ function isTruthy(value) {
     return !!value
 }
 
-},{}],34:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
 var traverse = require('traverse');
 var objectKeys = require('./keys');
 var forEach = require('./foreach');
@@ -7080,7 +7093,7 @@ Scrubber.prototype.unscrub = function (msg, f) {
     return args;
 };
 
-},{"./keys":35,"./foreach":36,"traverse":47}],47:[function(require,module,exports){
+},{"./keys":37,"./foreach":38,"traverse":47}],47:[function(require,module,exports){
 var traverse = module.exports = function (obj) {
     return new Traverse(obj);
 };

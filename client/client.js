@@ -13,6 +13,7 @@
         });
     };
 
+    var highest = document.getElementById("highest");
     var messages = document.getElementById("messages");
     var texts = document.getElementById("texts");
 
@@ -42,6 +43,18 @@
         var textSet = doc.createSet("type", "text");
         textSet.on("add", function (row) {
            texts.textContent += "NEW TEXT: " + row.get("text") + "\n";
+        });
+
+        var numbersSeq = doc.createSeq("type", "number");
+        numbersSeq.on("add", function () {
+            var numbers = [];
+            var number = numbersSeq.first();
+            numbers.push(number.get("number"));
+            while((number = numbersSeq.next(number)) && numbers.length < 5) {
+                numbers.push(number.get("number"));
+            }
+
+            highest.textContent = numbers.join("\n");
         });
 
         var d = dnode();

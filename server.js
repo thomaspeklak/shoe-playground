@@ -17,10 +17,6 @@ var sock = shoe(function (stream) {
     var docStream = doc.createStream();
     var timer;
 
-    doc.on("create", function (row) {
-       console.dir(row.toJSON());
-    });
-
     var d = dnode({
         echo: function (s, cb) {
             cb(s + " from SERVER");
@@ -28,7 +24,8 @@ var sock = shoe(function (stream) {
         },
         start: function (cb) {
             timer = setInterval(function () {
-                doc.add({number: Math.random()});
+                var number = Math.random();
+                doc.add({type: "number", number: number, _sort: 1 - number});
             }, parseInt(Math.random() * 1000, 10));
             cb("started");
             console.dir("STARTED");
