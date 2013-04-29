@@ -15,6 +15,7 @@
     };
 
     var messages = document.getElementById("messages");
+    var texts = document.getElementById("texts");
 
     reconnect(function (stream) {
 
@@ -39,6 +40,11 @@
             }
         });
 
+        var textSet = doc.createSet("type", "text");
+        textSet.on("add", function (row) {
+           texts.textContent += "NEW TEXT: " + row.get("text") + "\n";
+        });
+
         var d = dnode();
         d.on("remote", function (remote) {
             remote.echo("echo me", function (s) {
@@ -57,7 +63,7 @@
 
             document.getElementById("row-add-button").addEventListener("click", function (e) {
                 e.preventDefault();
-                doc.add({text: document.getElementById("row-add").value});
+                doc.add({type: "text", text: document.getElementById("row-add").value});
             });
         });
 
@@ -1919,6 +1925,113 @@ exports.sort = function (hist) {
   })
 }
 
+},{}],23:[function(require,module,exports){
+
+function inject (chars) {
+
+  chars = chars ||
+  '!0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz~'
+
+  chars = chars.split('').sort().join('')
+
+  var exports = between
+
+  exports.between   = between
+
+  exports.randstr   = randstr
+  exports.between   = between
+  exports.strord    = strord
+
+  exports.lo        = chars[0]
+  exports.hi        = chars[chars.length - 1]
+
+  exports.inject    = inject
+
+  function randstr(l) {
+    var str = ''
+    while(l--) 
+      str += chars[
+        Math.floor(
+          Math.random() * chars.length 
+        )
+      ]
+    return str
+  }
+
+  /*
+    SOME EXAMPLE STRINGS, IN ORDER
+   
+    0
+    00001
+    0001
+    001
+    001001
+    00101
+    0011
+    0011001
+    001100101
+    00110011
+    001101
+    00111
+    01  
+
+    if you never make a string that ends in the lowest char,
+    then it is always possible to make a string between two strings.
+    this is like how decimals never end in 0. 
+
+    example:
+
+    between('A', 'AB') 
+
+    ... 'AA' will sort between 'A' and 'AB' but then it is impossible
+    to make a string inbetween 'A' and 'AA'.
+    instead, return 'AAB', then there will be space.
+
+  */
+
+  function between (a, b) {
+
+    var s = '', i = 0
+
+    while (true) {
+
+      var _a = chars.indexOf(a[i])
+      var _b = chars.indexOf(b[i])
+     
+      if(_a == -1) _a = 0
+      if(_b == -1) _b = chars.length - 1
+
+      i++
+
+      var c = chars[
+          _a + 1 < _b 
+        ? Math.round((_a+_b)/2)
+        : _a
+      ]
+
+      s += c
+
+      if(a < s && s < b && c != exports.lo)
+        return s;
+    }
+  }
+
+  function strord (a, b) {
+    return (
+      a == b ?  0
+    : a <  b ? -1
+    :           1
+    )
+  }
+
+  between.strord
+
+  return between
+}
+
+
+module.exports = inject(null)
+
 },{}],9:[function(require,module,exports){
 (function(process){var protocol = require('dnode-protocol');
 var Stream = require('stream');
@@ -2143,114 +2256,7 @@ module.exports = function (uri, cb) {
     return stream;
 };
 
-},{"stream":20,"sockjs-client":27}],23:[function(require,module,exports){
-
-function inject (chars) {
-
-  chars = chars ||
-  '!0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz~'
-
-  chars = chars.split('').sort().join('')
-
-  var exports = between
-
-  exports.between   = between
-
-  exports.randstr   = randstr
-  exports.between   = between
-  exports.strord    = strord
-
-  exports.lo        = chars[0]
-  exports.hi        = chars[chars.length - 1]
-
-  exports.inject    = inject
-
-  function randstr(l) {
-    var str = ''
-    while(l--) 
-      str += chars[
-        Math.floor(
-          Math.random() * chars.length 
-        )
-      ]
-    return str
-  }
-
-  /*
-    SOME EXAMPLE STRINGS, IN ORDER
-   
-    0
-    00001
-    0001
-    001
-    001001
-    00101
-    0011
-    0011001
-    001100101
-    00110011
-    001101
-    00111
-    01  
-
-    if you never make a string that ends in the lowest char,
-    then it is always possible to make a string between two strings.
-    this is like how decimals never end in 0. 
-
-    example:
-
-    between('A', 'AB') 
-
-    ... 'AA' will sort between 'A' and 'AB' but then it is impossible
-    to make a string inbetween 'A' and 'AA'.
-    instead, return 'AAB', then there will be space.
-
-  */
-
-  function between (a, b) {
-
-    var s = '', i = 0
-
-    while (true) {
-
-      var _a = chars.indexOf(a[i])
-      var _b = chars.indexOf(b[i])
-     
-      if(_a == -1) _a = 0
-      if(_b == -1) _b = chars.length - 1
-
-      i++
-
-      var c = chars[
-          _a + 1 < _b 
-        ? Math.round((_a+_b)/2)
-        : _a
-      ]
-
-      s += c
-
-      if(a < s && s < b && c != exports.lo)
-        return s;
-    }
-  }
-
-  function strord (a, b) {
-    return (
-      a == b ?  0
-    : a <  b ? -1
-    :           1
-    )
-  }
-
-  between.strord
-
-  return between
-}
-
-
-module.exports = inject(null)
-
-},{}],10:[function(require,module,exports){
+},{"stream":20,"sockjs-client":27}],10:[function(require,module,exports){
 var inherits     = require('util').inherits
 var Row          = require('./row')
 var between      = require('between')
@@ -4890,7 +4896,7 @@ module.exports.exponential = function(options) {
 };
 
 
-},{"./lib/backoff":29,"./lib/strategy/exponential":30,"./lib/strategy/fibonacci":31}],21:[function(require,module,exports){
+},{"./lib/backoff":29,"./lib/strategy/fibonacci":30,"./lib/strategy/exponential":31}],21:[function(require,module,exports){
 
 var h = require('hyperscript')
 var o = require('observable')
@@ -5791,43 +5797,6 @@ var util = require('util');
 var BackoffStrategy = require('./strategy');
 
 /**
- * Exponential backoff strategy.
- * @extends BackoffStrategy
- */
-function ExponentialBackoffStrategy(options) {
-    BackoffStrategy.call(this, options);
-    this.backoffDelay_ = 0;
-    this.nextBackoffDelay_ = this.getInitialDelay();
-}
-util.inherits(ExponentialBackoffStrategy, BackoffStrategy);
-
-/** @inheritDoc */
-ExponentialBackoffStrategy.prototype.next_ = function() {
-    this.backoffDelay_ = Math.min(this.nextBackoffDelay_, this.getMaxDelay());
-    this.nextBackoffDelay_ = this.backoffDelay_ * 2;
-    return this.backoffDelay_;
-};
-
-/** @inheritDoc */
-ExponentialBackoffStrategy.prototype.reset_ = function() {
-    this.backoffDelay_ = 0;
-    this.nextBackoffDelay_ = this.getInitialDelay();
-};
-
-module.exports = ExponentialBackoffStrategy;
-
-
-},{"util":6,"./strategy":40}],31:[function(require,module,exports){
-/*
- * Copyright (c) 2012 Mathieu Turcotte
- * Licensed under the MIT license.
- */
-
-var util = require('util');
-
-var BackoffStrategy = require('./strategy');
-
-/**
  * Fibonacci backoff strategy.
  * @extends BackoffStrategy
  */
@@ -5853,6 +5822,43 @@ FibonacciBackoffStrategy.prototype.reset_ = function() {
 };
 
 module.exports = FibonacciBackoffStrategy;
+
+
+},{"util":6,"./strategy":40}],31:[function(require,module,exports){
+/*
+ * Copyright (c) 2012 Mathieu Turcotte
+ * Licensed under the MIT license.
+ */
+
+var util = require('util');
+
+var BackoffStrategy = require('./strategy');
+
+/**
+ * Exponential backoff strategy.
+ * @extends BackoffStrategy
+ */
+function ExponentialBackoffStrategy(options) {
+    BackoffStrategy.call(this, options);
+    this.backoffDelay_ = 0;
+    this.nextBackoffDelay_ = this.getInitialDelay();
+}
+util.inherits(ExponentialBackoffStrategy, BackoffStrategy);
+
+/** @inheritDoc */
+ExponentialBackoffStrategy.prototype.next_ = function() {
+    this.backoffDelay_ = Math.min(this.nextBackoffDelay_, this.getMaxDelay());
+    this.nextBackoffDelay_ = this.backoffDelay_ * 2;
+    return this.backoffDelay_;
+};
+
+/** @inheritDoc */
+ExponentialBackoffStrategy.prototype.reset_ = function() {
+    this.backoffDelay_ = 0;
+    this.nextBackoffDelay_ = this.getInitialDelay();
+};
+
+module.exports = ExponentialBackoffStrategy;
 
 
 },{"util":6,"./strategy":40}],28:[function(require,module,exports){

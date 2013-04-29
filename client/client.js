@@ -14,6 +14,7 @@
     };
 
     var messages = document.getElementById("messages");
+    var texts = document.getElementById("texts");
 
     reconnect(function (stream) {
 
@@ -38,6 +39,11 @@
             }
         });
 
+        var textSet = doc.createSet("type", "text");
+        textSet.on("add", function (row) {
+           texts.textContent += "NEW TEXT: " + row.get("text") + "\n";
+        });
+
         var d = dnode();
         d.on("remote", function (remote) {
             remote.echo("echo me", function (s) {
@@ -56,7 +62,7 @@
 
             document.getElementById("row-add-button").addEventListener("click", function (e) {
                 e.preventDefault();
-                doc.add({text: document.getElementById("row-add").value});
+                doc.add({type: "text", text: document.getElementById("row-add").value});
             });
         });
 
