@@ -14,7 +14,7 @@
     "websocket"
   ],
   "author": "Thomas Peklak",
-  "license": "BSD",
+  "license": "MIT",
   "dependencies": {
     "shoe": "0.0.10",
     "dnode": "~1.0.5",
