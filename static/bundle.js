@@ -4,6 +4,8 @@
     var reconnect = require("reconnect");
     var MuxDemux = require("mux-demux");
     var dnode = require("dnode");
+    var Doc = require("crdt").Doc;
+
     var l = function (err) {
         console.dir({
             error: arguments[0],
@@ -23,14 +25,18 @@
         mdm.on("error", l);
         stream.on("error", l);
 
-        var first = mdm.createStream("first");
-        first.on("data", function (data) {
-            messages.textContent += "FIRST: " + data + "\n";
-        });
-
-        var second = mdm.createStream("second");
-        second.on("data", function (data) {
-            messages.textContent += "SECOND: " + data + "\n";
+        var docStream = mdm.createStream("doc");
+        var doc = new Doc;
+        docStream.pipe(doc.createStream()).pipe(docStream);
+        doc.on("create", function (row) {
+            var number = row.get("number");
+            if (number) {
+                messages.textContent += "DOCUMENT ROW: " + number + "\n";
+            }
+            var text = row.get("text");
+            if (text) {
+                messages.textContent += "TEXT: " + text + "\n";
+            }
         });
 
         var d = dnode();
@@ -39,14 +45,19 @@
                 console.log(s);
             });
 
-            document.getElementById("start").addEventListener("click", function (e) {
+            document.getElementById("row-start").addEventListener("click", function (e) {
                 e.preventDefault();
                 remote.start(function (s) {console.dir(s)});
             });
 
-            document.getElementById("stop").addEventListener("click", function (e) {
+            document.getElementById("row-stop").addEventListener("click", function (e) {
                 e.preventDefault();
                 remote.stop(function (s) {console.dir(s)});
+            });
+
+            document.getElementById("row-add-button").addEventListener("click", function (e) {
+                e.preventDefault();
+                doc.add({text: document.getElementById("row-add").value});
             });
         });
 
@@ -64,909 +75,7 @@
     }).connect("/socket");
 }());
 
-},{"dnode":2,"reconnect":3,"mux-demux":4}],2:[function(require,module,exports){
-var dnode = require('./lib/dnode');
-
-module.exports = function (cons, opts) {
-    return new dnode(cons, opts);
-};
-
-},{"./lib/dnode":5}],3:[function(require,module,exports){
-
-var shoe = require('shoe')
-
-module.exports = require('./inject')(function (){
-  var args = [].slice.call(arguments)
-  return shoe.apply(null, args)
-})
-
-},{"./inject":6,"shoe":7}],4:[function(require,module,exports){
-'use strict';
-
-var through = require('through')
-  , extend = require('xtend')
-  , duplex = require('duplex')
-  , serializer = require('stream-serializer')
-
-function MuxDemux (opts, onConnection) {
-  if('function' === typeof opts)
-    onConnection = opts, opts = null
-  opts = opts || {}
-
-  function createID() {
-    return (
-      Math.random().toString(16).slice(2) +
-      Math.random().toString(16).slice(2)
-    )
-  }
-
-  var streams = {}, streamCount = 0
-  var md = duplex()//.resume()
-
-  md.on('_data', function (data) {
-    if(!(Array.isArray(data)
-      && 'string' === typeof data[0]
-      && '__proto__' !== data[0]
-      && 'string' === typeof data[1]
-      && '__proto__' !== data[1]
-    )) return
-    var id = data.shift()
-    var event = data[0]
-    var s = streams[id]
-    if(!s) {
-      if(event == 'close')
-        return
-      if(event != 'new')
-        return outer.emit('unknown', id)
-      md.emit('connection', createStream(id, data[1].meta, data[1].opts))
-    }
-    else if (event === 'pause')
-      s.paused = true
-    else if (event === 'resume') {
-      var p = s.paused
-      s.paused = false
-      if(p) s.emit('drain')
-    }
-    else if (event === 'error') {
-      var error = data[1]
-      if (typeof error === 'string') {
-        s.emit('error', new Error(error))
-      } else if (typeof error.message === 'string') {
-        var e = new Error(error.message)
-        extend(e, error)
-        s.emit('error', e)
-      } else {
-        s.emit('error', error)
-      }
-    }
-    else {
-      s.emit.apply(s, data)
-    }
-  })
-  .on('_end', function () {
-    destroyAll()
-    md._end()
-  })
-
-  function destroyAll (_err) {
-    md.removeListener('end', destroyAll)
-    md.removeListener('error', destroyAll)
-    md.removeListener('close', destroyAll)
-    var err = _err || new Error ('unexpected disconnection')
-    for (var i in streams) {
-      var s = streams[i]
-      s.destroyed = true
-      if (opts.error !== true) {
-        s.end()
-      } else {
-        s.emit('error', err)
-        s.destroy()
-      }
-    }
-  }
-
-  //end the stream once sub-streams have ended.
-  //(waits for them to close, like on a tcp server)
-
-  function createStream(id, meta, opts) {
-    streamCount ++
-    var s = through(function (data) {
-      if(!this.writable) {
-        var err = Error('stream is not writable: ' + id)
-        err.stream = this
-        return outer.emit("error", err)
-      }
-      md._data([s.id, 'data', data])
-    }, function () {
-      md._data([s.id, 'end'])
-      if (this.readable && !opts.allowHalfOpen && !this.ended) {
-        this.emit("end")
-      }
-    })
-    s.pause = function () {
-      md._data([s.id, 'pause'])
-    }
-    s.resume = function () {
-      md._data([s.id, 'resume'])
-    }
-    s.error = function (message) {
-      md._data([s.id, 'error', message])
-    }
-    s.once('close', function () {
-      delete streams[id]
-      streamCount --
-      md._data([s.id, 'close'])
-      if(streamCount === 0)
-        md.emit('zero')
-    })
-    s.writable = opts.writable
-    s.readable = opts.readable
-    streams[s.id = id] = s
-    s.meta = meta
-    return s
-  }
-
-  var outer = serializer(opts.wrapper)(md)
-
-  if(md !== outer)
-    md.on('connection', function (stream) {
-      outer.emit('connection', stream)
-    })
-
-  outer.close = function (cb) {
-    md.once('zero', function () {
-      md._end()
-      if(cb) cb()
-    })
-    return this
-  }
-
-  if(onConnection)
-    outer.on('connection', onConnection)
-
-  outer.on('connection', function (stream) {
-    //if mux-demux recieves a stream but there is nothing to handle it,
-    //then return an error to the other side.
-    //still trying to think of the best error message.
-    if(outer.listeners('connection').length === 1)
-      stream.error('remote end lacks connection listener ' 
-        + outer.listeners('connection').length)
-  })
-
-  var pipe = outer.pipe
-  outer.pipe = function (dest, opts) {
-    pipe.call(outer, dest, opts)
-    md.on('end', destroyAll)
-    md.on('close', destroyAll)
-    md.on('error', destroyAll)
-    return dest
-  }
-
-  outer.createStream = function (meta, opts) {
-    opts = opts || {}
-    if (!opts.writable && !opts.readable)
-      opts.readable = opts.writable = true
-    var s = createStream(createID(), meta, opts)
-    var _opts = {writable: opts.readable, readable: opts.writable}
-    md._data([s.id, 'new', {meta: meta, opts: _opts}])
-    return s
-  }
-  outer.createWriteStream = function (meta) {
-    return outer.createStream(meta, {writable: true, readable: false})
-  }
-  outer.createReadStream = function (meta) {
-    return outer.createStream(meta, {writable: false, readable: true})
-  }
-
-  return outer
-}
-
-module.exports = MuxDemux
-
-
-},{"through":8,"xtend":9,"duplex":10,"stream-serializer":11}],12:[function(require,module,exports){
-var events = require('events');
-var util = require('util');
-
-function Stream() {
-  events.EventEmitter.call(this);
-}
-util.inherits(Stream, events.EventEmitter);
-module.exports = Stream;
-// Backwards-compat with node 0.4.x
-Stream.Stream = Stream;
-
-Stream.prototype.pipe = function(dest, options) {
-  var source = this;
-
-  function ondata(chunk) {
-    if (dest.writable) {
-      if (false === dest.write(chunk) && source.pause) {
-        source.pause();
-      }
-    }
-  }
-
-  source.on('data', ondata);
-
-  function ondrain() {
-    if (source.readable && source.resume) {
-      source.resume();
-    }
-  }
-
-  dest.on('drain', ondrain);
-
-  // If the 'end' option is not supplied, dest.end() will be called when
-  // source gets the 'end' or 'close' events.  Only dest.end() once, and
-  // only when all sources have ended.
-  if (!dest._isStdio && (!options || options.end !== false)) {
-    dest._pipeCount = dest._pipeCount || 0;
-    dest._pipeCount++;
-
-    source.on('end', onend);
-    source.on('close', onclose);
-  }
-
-  var didOnEnd = false;
-  function onend() {
-    if (didOnEnd) return;
-    didOnEnd = true;
-
-    dest._pipeCount--;
-
-    // remove the listeners
-    cleanup();
-
-    if (dest._pipeCount > 0) {
-      // waiting for other incoming streams to end.
-      return;
-    }
-
-    dest.end();
-  }
-
-
-  function onclose() {
-    if (didOnEnd) return;
-    didOnEnd = true;
-
-    dest._pipeCount--;
-
-    // remove the listeners
-    cleanup();
-
-    if (dest._pipeCount > 0) {
-      // waiting for other incoming streams to end.
-      return;
-    }
-
-    dest.destroy();
-  }
-
-  // don't leave dangling pipes when there are errors.
-  function onerror(er) {
-    cleanup();
-    if (this.listeners('error').length === 0) {
-      throw er; // Unhandled stream error in pipe.
-    }
-  }
-
-  source.on('error', onerror);
-  dest.on('error', onerror);
-
-  // remove all the event listeners that were added.
-  function cleanup() {
-    source.removeListener('data', ondata);
-    dest.removeListener('drain', ondrain);
-
-    source.removeListener('end', onend);
-    source.removeListener('close', onclose);
-
-    source.removeListener('error', onerror);
-    dest.removeListener('error', onerror);
-
-    source.removeListener('end', cleanup);
-    source.removeListener('close', cleanup);
-
-    dest.removeListener('end', cleanup);
-    dest.removeListener('close', cleanup);
-  }
-
-  source.on('end', cleanup);
-  source.on('close', cleanup);
-
-  dest.on('end', cleanup);
-  dest.on('close', cleanup);
-
-  dest.emit('pipe', source);
-
-  // Allow for unix-like usage: A.pipe(B).pipe(C)
-  return dest;
-};
-
-},{"events":13,"util":14}],15:[function(require,module,exports){
-// shim for using process in browser
-
-var process = module.exports = {};
-
-process.nextTick = (function () {
-    var canSetImmediate = typeof window !== 'undefined'
-    && window.setImmediate;
-    var canPost = typeof window !== 'undefined'
-    && window.postMessage && window.addEventListener
-    ;
-
-    if (canSetImmediate) {
-        return function (f) { return window.setImmediate(f) };
-    }
-
-    if (canPost) {
-        var queue = [];
-        window.addEventListener('message', function (ev) {
-            if (ev.source === window && ev.data === 'process-tick') {
-                ev.stopPropagation();
-                if (queue.length > 0) {
-                    var fn = queue.shift();
-                    fn();
-                }
-            }
-        }, true);
-
-        return function nextTick(fn) {
-            queue.push(fn);
-            window.postMessage('process-tick', '*');
-        };
-    }
-
-    return function nextTick(fn) {
-        setTimeout(fn, 0);
-    };
-})();
-
-process.title = 'browser';
-process.browser = true;
-process.env = {};
-process.argv = [];
-
-process.binding = function (name) {
-    throw new Error('process.binding is not supported');
-}
-
-// TODO(shtylman)
-process.cwd = function () { return '/' };
-process.chdir = function (dir) {
-    throw new Error('process.chdir is not supported');
-};
-
-},{}],13:[function(require,module,exports){
-(function(process){if (!process.EventEmitter) process.EventEmitter = function () {};
-
-var EventEmitter = exports.EventEmitter = process.EventEmitter;
-var isArray = typeof Array.isArray === 'function'
-    ? Array.isArray
-    : function (xs) {
-        return Object.prototype.toString.call(xs) === '[object Array]'
-    }
-;
-function indexOf (xs, x) {
-    if (xs.indexOf) return xs.indexOf(x);
-    for (var i = 0; i < xs.length; i++) {
-        if (x === xs[i]) return i;
-    }
-    return -1;
-}
-
-// By default EventEmitters will print a warning if more than
-// 10 listeners are added to it. This is a useful default which
-// helps finding memory leaks.
-//
-// Obviously not all Emitters should be limited to 10. This function allows
-// that to be increased. Set to zero for unlimited.
-var defaultMaxListeners = 10;
-EventEmitter.prototype.setMaxListeners = function(n) {
-  if (!this._events) this._events = {};
-  this._events.maxListeners = n;
-};
-
-
-EventEmitter.prototype.emit = function(type) {
-  // If there is no 'error' event listener then throw.
-  if (type === 'error') {
-    if (!this._events || !this._events.error ||
-        (isArray(this._events.error) && !this._events.error.length))
-    {
-      if (arguments[1] instanceof Error) {
-        throw arguments[1]; // Unhandled 'error' event
-      } else {
-        throw new Error("Uncaught, unspecified 'error' event.");
-      }
-      return false;
-    }
-  }
-
-  if (!this._events) return false;
-  var handler = this._events[type];
-  if (!handler) return false;
-
-  if (typeof handler == 'function') {
-    switch (arguments.length) {
-      // fast cases
-      case 1:
-        handler.call(this);
-        break;
-      case 2:
-        handler.call(this, arguments[1]);
-        break;
-      case 3:
-        handler.call(this, arguments[1], arguments[2]);
-        break;
-      // slower
-      default:
-        var args = Array.prototype.slice.call(arguments, 1);
-        handler.apply(this, args);
-    }
-    return true;
-
-  } else if (isArray(handler)) {
-    var args = Array.prototype.slice.call(arguments, 1);
-
-    var listeners = handler.slice();
-    for (var i = 0, l = listeners.length; i < l; i++) {
-      listeners[i].apply(this, args);
-    }
-    return true;
-
-  } else {
-    return false;
-  }
-};
-
-// EventEmitter is defined in src/node_events.cc
-// EventEmitter.prototype.emit() is also defined there.
-EventEmitter.prototype.addListener = function(type, listener) {
-  if ('function' !== typeof listener) {
-    throw new Error('addListener only takes instances of Function');
-  }
-
-  if (!this._events) this._events = {};
-
-  // To avoid recursion in the case that type == "newListeners"! Before
-  // adding it to the listeners, first emit "newListeners".
-  this.emit('newListener', type, listener);
-
-  if (!this._events[type]) {
-    // Optimize the case of one listener. Don't need the extra array object.
-    this._events[type] = listener;
-  } else if (isArray(this._events[type])) {
-
-    // Check for listener leak
-    if (!this._events[type].warned) {
-      var m;
-      if (this._events.maxListeners !== undefined) {
-        m = this._events.maxListeners;
-      } else {
-        m = defaultMaxListeners;
-      }
-
-      if (m && m > 0 && this._events[type].length > m) {
-        this._events[type].warned = true;
-        console.error('(node) warning: possible EventEmitter memory ' +
-                      'leak detected. %d listeners added. ' +
-                      'Use emitter.setMaxListeners() to increase limit.',
-                      this._events[type].length);
-        console.trace();
-      }
-    }
-
-    // If we've already got an array, just append.
-    this._events[type].push(listener);
-  } else {
-    // Adding the second element, need to change to array.
-    this._events[type] = [this._events[type], listener];
-  }
-
-  return this;
-};
-
-EventEmitter.prototype.on = EventEmitter.prototype.addListener;
-
-EventEmitter.prototype.once = function(type, listener) {
-  var self = this;
-  self.on(type, function g() {
-    self.removeListener(type, g);
-    listener.apply(this, arguments);
-  });
-
-  return this;
-};
-
-EventEmitter.prototype.removeListener = function(type, listener) {
-  if ('function' !== typeof listener) {
-    throw new Error('removeListener only takes instances of Function');
-  }
-
-  // does not use listeners(), so no side effect of creating _events[type]
-  if (!this._events || !this._events[type]) return this;
-
-  var list = this._events[type];
-
-  if (isArray(list)) {
-    var i = indexOf(list, listener);
-    if (i < 0) return this;
-    list.splice(i, 1);
-    if (list.length == 0)
-      delete this._events[type];
-  } else if (this._events[type] === listener) {
-    delete this._events[type];
-  }
-
-  return this;
-};
-
-EventEmitter.prototype.removeAllListeners = function(type) {
-  if (arguments.length === 0) {
-    this._events = {};
-    return this;
-  }
-
-  // does not use listeners(), so no side effect of creating _events[type]
-  if (type && this._events && this._events[type]) this._events[type] = null;
-  return this;
-};
-
-EventEmitter.prototype.listeners = function(type) {
-  if (!this._events) this._events = {};
-  if (!this._events[type]) this._events[type] = [];
-  if (!isArray(this._events[type])) {
-    this._events[type] = [this._events[type]];
-  }
-  return this._events[type];
-};
-
-})(require("__browserify_process"))
-},{"__browserify_process":15}],8:[function(require,module,exports){
-(function(process){var Stream = require('stream')
-
-// through
-//
-// a stream that does nothing but re-emit the input.
-// useful for aggregating a series of changing but not ending streams into one stream)
-
-exports = module.exports = through
-through.through = through
-
-//create a readable writable stream.
-
-function through (write, end, opts) {
-  write = write || function (data) { this.queue(data) }
-  end = end || function () { this.queue(null) }
-
-  var ended = false, destroyed = false, buffer = []
-  var stream = new Stream()
-  stream.readable = stream.writable = true
-  stream.paused = false
-
-//  stream.autoPause   = !(opts && opts.autoPause   === false)
-  stream.autoDestroy = !(opts && opts.autoDestroy === false)
-
-  stream.write = function (data) {
-    write.call(this, data)
-    return !stream.paused
-  }
-
-  function drain() {
-    while(buffer.length && !stream.paused) {
-      var data = buffer.shift()
-      if(null === data)
-        return stream.emit('end')
-      else
-        stream.emit('data', data)
-    }
-  }
-
-  stream.queue = stream.push = function (data) {
-    buffer.push(data)
-    drain()
-    return stream
-  }
-
-  //this will be registered as the first 'end' listener
-  //must call destroy next tick, to make sure we're after any
-  //stream piped from here.
-  //this is only a problem if end is not emitted synchronously.
-  //a nicer way to do this is to make sure this is the last listener for 'end'
-
-  stream.on('end', function () {
-    stream.readable = false
-    if(!stream.writable && stream.autoDestroy)
-      process.nextTick(function () {
-        stream.destroy()
-      })
-  })
-
-  function _end () {
-    stream.writable = false
-    end.call(stream)
-    if(!stream.readable && stream.autoDestroy)
-      stream.destroy()
-  }
-
-  stream.end = function (data) {
-    if(ended) return
-    ended = true
-    if(arguments.length) stream.write(data)
-    _end() // will emit or queue
-    return stream
-  }
-
-  stream.destroy = function () {
-    if(destroyed) return
-    destroyed = true
-    ended = true
-    buffer.length = 0
-    stream.writable = stream.readable = false
-    stream.emit('close')
-    return stream
-  }
-
-  stream.pause = function () {
-    if(stream.paused) return
-    stream.paused = true
-    return stream
-  }
-
-  stream.resume = function () {
-    if(stream.paused) {
-      stream.paused = false
-      stream.emit('resume')
-    }
-    drain()
-    //may have become paused again,
-    //as drain emits 'data'.
-    if(!stream.paused)
-      stream.emit('drain')
-    return stream
-  }
-  return stream
-}
-
-
-})(require("__browserify_process"))
-},{"stream":12,"__browserify_process":15}],9:[function(require,module,exports){
-module.exports = extend
-
-function extend(target) {
-    for (var i = 1; i < arguments.length; i++) {
-        var source = arguments[i],
-            keys = Object.keys(source)
-
-        for (var j = 0; j < keys.length; j++) {
-            var name = keys[j]
-            target[name] = source[name]
-        }
-    }
-
-    return target
-}
-},{}],10:[function(require,module,exports){
-(function(process){var Stream = require('stream')
-
-module.exports = function (write, end) {
-  var stream = new Stream() 
-  var buffer = [], ended = false, destroyed = false, emitEnd
-  stream.writable = stream.readable = true
-  stream.paused = false
-  stream._paused = false
-  stream.buffer = buffer
-  
-  stream
-    .on('pause', function () {
-      stream._paused = true
-    })
-    .on('drain', function () {
-      stream._paused = false
-    })
-   
-  function destroySoon () {
-    process.nextTick(stream.destroy.bind(stream))
-  }
-
-  if(write)
-    stream.on('_data', write)
-  if(end)
-    stream.on('_end', end)
-
-  //destroy the stream once both ends are over
-  //but do it in nextTick, so that other listeners
-  //on end have time to respond
-  stream.once('end', function () { 
-    stream.readable = false
-    if(!stream.writable) {
-      process.nextTick(function () {
-        stream.destroy()
-      })
-    }
-  })
-
-  stream.once('_end', function () { 
-    stream.writable = false
-    if(!stream.readable)
-      stream.destroy()
-  })
-
-  // this is the default write method,
-  // if you overide it, you are resposible
-  // for pause state.
-
-  
-  stream._data = function (data) {
-    if(!stream.paused && !buffer.length)
-      stream.emit('data', data)
-    else 
-      buffer.push(data)
-    return !(stream.paused || buffer.length)
-  }
-
-  stream._end = function (data) { 
-    if(data) stream._data(data)
-    if(emitEnd) return
-    emitEnd = true
-    //destroy is handled above.
-    stream.drain()
-  }
-
-  stream.write = function (data) {
-    stream.emit('_data', data)
-    return !stream._paused
-  }
-
-  stream.end = function () {
-    stream.writable = false
-    if(stream.ended) return
-    stream.ended = true
-    stream.emit('_end')
-  }
-
-  stream.drain = function () {
-    if(!buffer.length && !emitEnd) return
-    //if the stream is paused after just before emitEnd()
-    //end should be buffered.
-    while(!stream.paused) {
-      if(buffer.length) {
-        stream.emit('data', buffer.shift())
-        if(buffer.length == 0) {
-          stream.emit('_drain')
-        }
-      }
-      else if(emitEnd && stream.readable) {
-        stream.readable = false
-        stream.emit('end')
-        return
-      } else {
-        //if the buffer has emptied. emit drain.
-        return true
-      }
-    }
-  }
-  var started = false
-  stream.resume = function () {
-    //this is where I need pauseRead, and pauseWrite.
-    //here the reading side is unpaused,
-    //but the writing side may still be paused.
-    //the whole buffer might not empity at once.
-    //it might pause again.
-    //the stream should never emit data inbetween pause()...resume()
-    //and write should return !buffer.length
-    started = true
-    stream.paused = false
-    stream.drain() //will emit drain if buffer empties.
-    return stream
-  }
-
-  stream.destroy = function () {
-    if(destroyed) return
-    destroyed = ended = true     
-    buffer.length = 0
-    stream.emit('close')
-  }
-  var pauseCalled = false
-  stream.pause = function () {
-    started = true
-    stream.paused = true
-    stream.emit('_pause')
-    return stream
-  }
-  stream._pause = function () {
-    if(!stream._paused) {
-      stream._paused = true
-      stream.emit('pause')
-    }
-    return this
-  }
-  stream.paused = true
-  process.nextTick(function () {
-    //unless the user manually paused
-    if(started) return
-    stream.resume()
-  })
- 
-  return stream
-}
-
-
-})(require("__browserify_process"))
-},{"stream":12,"__browserify_process":15}],11:[function(require,module,exports){
-
-var EventEmitter = require('events').EventEmitter
-
-exports = module.exports = function (wrapper) {
-
-  if('function' == typeof wrapper)
-    return wrapper
-  
-  return exports[wrapper] || exports.json
-}
-
-exports.json = function (stream) {
-
-  var write = stream.write
-  var soFar = ''
-
-  function parse (line) {
-    var js
-    try {
-      js = JSON.parse(line)
-      //ignore lines of whitespace...
-    } catch (err) { 
-      return stream.emit('error', err)
-      //return console.error('invalid JSON', line)
-    }
-    if(js !== undefined)
-      write.call(stream, js)
-  }
-
-  function onData (data) {
-    var lines = (soFar + data).split('\n')
-    soFar = lines.pop()
-    while(lines.length) {
-      parse(lines.shift())
-    }
-  }
-
-  stream.write = onData
-  
-  var end = stream.end
-
-  stream.end = function (data) {
-    if(data)
-      stream.write(data)
-    //if there is any left over...
-    if(soFar) {
-      parse(soFar)
-    }
-    return end.call(stream)
-  }
-
-  stream.emit = function (event, data) {
-
-    if(event == 'data') {
-      data = JSON.stringify(data) + '\n'
-    }
-    //since all stream events only use one argument, this is okay...
-    EventEmitter.prototype.emit.call(stream, event, data)
-  }
-
-  return stream
-//  return es.pipeline(es.split(), es.parse(), stream, es.stringify())
-}
-
-exports.raw = function (stream) {
-  return stream
-}
-
-
-},{"events":13}],14:[function(require,module,exports){
+},{"dnode":2,"reconnect":3,"mux-demux":4,"crdt":5}],6:[function(require,module,exports){
 var events = require('events');
 
 exports.isArray = isArray;
@@ -1319,7 +428,998 @@ exports.format = function(f) {
   return str;
 };
 
-},{"events":13}],6:[function(require,module,exports){
+},{"events":7}],8:[function(require,module,exports){
+// shim for using process in browser
+
+var process = module.exports = {};
+
+process.nextTick = (function () {
+    var canSetImmediate = typeof window !== 'undefined'
+    && window.setImmediate;
+    var canPost = typeof window !== 'undefined'
+    && window.postMessage && window.addEventListener
+    ;
+
+    if (canSetImmediate) {
+        return function (f) { return window.setImmediate(f) };
+    }
+
+    if (canPost) {
+        var queue = [];
+        window.addEventListener('message', function (ev) {
+            if (ev.source === window && ev.data === 'process-tick') {
+                ev.stopPropagation();
+                if (queue.length > 0) {
+                    var fn = queue.shift();
+                    fn();
+                }
+            }
+        }, true);
+
+        return function nextTick(fn) {
+            queue.push(fn);
+            window.postMessage('process-tick', '*');
+        };
+    }
+
+    return function nextTick(fn) {
+        setTimeout(fn, 0);
+    };
+})();
+
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+}
+
+// TODO(shtylman)
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+
+},{}],7:[function(require,module,exports){
+(function(process){if (!process.EventEmitter) process.EventEmitter = function () {};
+
+var EventEmitter = exports.EventEmitter = process.EventEmitter;
+var isArray = typeof Array.isArray === 'function'
+    ? Array.isArray
+    : function (xs) {
+        return Object.prototype.toString.call(xs) === '[object Array]'
+    }
+;
+function indexOf (xs, x) {
+    if (xs.indexOf) return xs.indexOf(x);
+    for (var i = 0; i < xs.length; i++) {
+        if (x === xs[i]) return i;
+    }
+    return -1;
+}
+
+// By default EventEmitters will print a warning if more than
+// 10 listeners are added to it. This is a useful default which
+// helps finding memory leaks.
+//
+// Obviously not all Emitters should be limited to 10. This function allows
+// that to be increased. Set to zero for unlimited.
+var defaultMaxListeners = 10;
+EventEmitter.prototype.setMaxListeners = function(n) {
+  if (!this._events) this._events = {};
+  this._events.maxListeners = n;
+};
+
+
+EventEmitter.prototype.emit = function(type) {
+  // If there is no 'error' event listener then throw.
+  if (type === 'error') {
+    if (!this._events || !this._events.error ||
+        (isArray(this._events.error) && !this._events.error.length))
+    {
+      if (arguments[1] instanceof Error) {
+        throw arguments[1]; // Unhandled 'error' event
+      } else {
+        throw new Error("Uncaught, unspecified 'error' event.");
+      }
+      return false;
+    }
+  }
+
+  if (!this._events) return false;
+  var handler = this._events[type];
+  if (!handler) return false;
+
+  if (typeof handler == 'function') {
+    switch (arguments.length) {
+      // fast cases
+      case 1:
+        handler.call(this);
+        break;
+      case 2:
+        handler.call(this, arguments[1]);
+        break;
+      case 3:
+        handler.call(this, arguments[1], arguments[2]);
+        break;
+      // slower
+      default:
+        var args = Array.prototype.slice.call(arguments, 1);
+        handler.apply(this, args);
+    }
+    return true;
+
+  } else if (isArray(handler)) {
+    var args = Array.prototype.slice.call(arguments, 1);
+
+    var listeners = handler.slice();
+    for (var i = 0, l = listeners.length; i < l; i++) {
+      listeners[i].apply(this, args);
+    }
+    return true;
+
+  } else {
+    return false;
+  }
+};
+
+// EventEmitter is defined in src/node_events.cc
+// EventEmitter.prototype.emit() is also defined there.
+EventEmitter.prototype.addListener = function(type, listener) {
+  if ('function' !== typeof listener) {
+    throw new Error('addListener only takes instances of Function');
+  }
+
+  if (!this._events) this._events = {};
+
+  // To avoid recursion in the case that type == "newListeners"! Before
+  // adding it to the listeners, first emit "newListeners".
+  this.emit('newListener', type, listener);
+
+  if (!this._events[type]) {
+    // Optimize the case of one listener. Don't need the extra array object.
+    this._events[type] = listener;
+  } else if (isArray(this._events[type])) {
+
+    // Check for listener leak
+    if (!this._events[type].warned) {
+      var m;
+      if (this._events.maxListeners !== undefined) {
+        m = this._events.maxListeners;
+      } else {
+        m = defaultMaxListeners;
+      }
+
+      if (m && m > 0 && this._events[type].length > m) {
+        this._events[type].warned = true;
+        console.error('(node) warning: possible EventEmitter memory ' +
+                      'leak detected. %d listeners added. ' +
+                      'Use emitter.setMaxListeners() to increase limit.',
+                      this._events[type].length);
+        console.trace();
+      }
+    }
+
+    // If we've already got an array, just append.
+    this._events[type].push(listener);
+  } else {
+    // Adding the second element, need to change to array.
+    this._events[type] = [this._events[type], listener];
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.on = EventEmitter.prototype.addListener;
+
+EventEmitter.prototype.once = function(type, listener) {
+  var self = this;
+  self.on(type, function g() {
+    self.removeListener(type, g);
+    listener.apply(this, arguments);
+  });
+
+  return this;
+};
+
+EventEmitter.prototype.removeListener = function(type, listener) {
+  if ('function' !== typeof listener) {
+    throw new Error('removeListener only takes instances of Function');
+  }
+
+  // does not use listeners(), so no side effect of creating _events[type]
+  if (!this._events || !this._events[type]) return this;
+
+  var list = this._events[type];
+
+  if (isArray(list)) {
+    var i = indexOf(list, listener);
+    if (i < 0) return this;
+    list.splice(i, 1);
+    if (list.length == 0)
+      delete this._events[type];
+  } else if (this._events[type] === listener) {
+    delete this._events[type];
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.removeAllListeners = function(type) {
+  if (arguments.length === 0) {
+    this._events = {};
+    return this;
+  }
+
+  // does not use listeners(), so no side effect of creating _events[type]
+  if (type && this._events && this._events[type]) this._events[type] = null;
+  return this;
+};
+
+EventEmitter.prototype.listeners = function(type) {
+  if (!this._events) this._events = {};
+  if (!this._events[type]) this._events[type] = [];
+  if (!isArray(this._events[type])) {
+    this._events[type] = [this._events[type]];
+  }
+  return this._events[type];
+};
+
+})(require("__browserify_process"))
+},{"__browserify_process":8}],2:[function(require,module,exports){
+var dnode = require('./lib/dnode');
+
+module.exports = function (cons, opts) {
+    return new dnode(cons, opts);
+};
+
+},{"./lib/dnode":9}],5:[function(require,module,exports){
+//index
+'use strict';
+
+var inherits     = require('util').inherits
+var EventEmitter = require('events').EventEmitter
+
+exports = module.exports = require('./doc')
+exports.Row              = require('./row')
+
+exports.sync             = sync
+exports.Set              = require('./set')
+exports.Seq              = require('./seq')
+
+exports.Doc = exports
+
+function sync(a, b) {
+  var as = a.createStream()
+  var bs = b.createStream()
+  return as.pipe(bs).pipe(as)
+}
+
+
+exports.createStream = function (doc, opts) {
+  return doc.createStream(opts)
+}
+
+},{"util":6,"events":7,"./doc":10,"./row":11,"./set":12,"./seq":13}],11:[function(require,module,exports){
+//row
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+'use strict';
+
+var inherits     = require('util').inherits
+var EventEmitter = require('events').EventEmitter
+
+module.exports = Row
+
+inherits(Row, EventEmitter)
+
+function Row (id) {
+  this.id = id
+  this.state = {id: id}
+  this.setMaxListeners(Infinity)
+}
+
+Row.prototype.set = function (changes, v) {
+  if(arguments.length == 2) {
+    var k = changes 
+    if(k === '__proto__')
+      return this
+    changes = {}
+    changes[k] = v
+  }
+
+  if(changes !== null && changes.id && changes.id !== this.state.id)
+    throw new Error('id cannot be changed')
+
+  this._set(changes, 'local')  
+  return this
+}
+
+Row.prototype.validate = function (changes) {
+  try {
+    this.emit('validate', changes)
+    return true
+  } catch (e) {
+    console.error('validation', e.message)
+    return false
+  } 
+}
+
+Row.prototype._set = function (changes, source) {
+
+  //the change is applied by the Doc!
+  this.emit('preupdate', changes, source)
+  return this
+}
+
+Row.prototype.get = function (key) {
+  if(key)
+    return this.state[key]
+  return this.state
+}
+
+Row.prototype.toJSON = function () {
+  return this.state
+}
+
+
+},{"util":6,"events":7}],3:[function(require,module,exports){
+
+var shoe = require('shoe')
+
+module.exports = require('./inject')(function (){
+  var args = [].slice.call(arguments)
+  return shoe.apply(null, args)
+})
+
+},{"./inject":14,"shoe":15}],4:[function(require,module,exports){
+'use strict';
+
+var through = require('through')
+  , extend = require('xtend')
+  , duplex = require('duplex')
+  , serializer = require('stream-serializer')
+
+function MuxDemux (opts, onConnection) {
+  if('function' === typeof opts)
+    onConnection = opts, opts = null
+  opts = opts || {}
+
+  function createID() {
+    return (
+      Math.random().toString(16).slice(2) +
+      Math.random().toString(16).slice(2)
+    )
+  }
+
+  var streams = {}, streamCount = 0
+  var md = duplex()//.resume()
+
+  md.on('_data', function (data) {
+    if(!(Array.isArray(data)
+      && 'string' === typeof data[0]
+      && '__proto__' !== data[0]
+      && 'string' === typeof data[1]
+      && '__proto__' !== data[1]
+    )) return
+    var id = data.shift()
+    var event = data[0]
+    var s = streams[id]
+    if(!s) {
+      if(event == 'close')
+        return
+      if(event != 'new')
+        return outer.emit('unknown', id)
+      md.emit('connection', createStream(id, data[1].meta, data[1].opts))
+    }
+    else if (event === 'pause')
+      s.paused = true
+    else if (event === 'resume') {
+      var p = s.paused
+      s.paused = false
+      if(p) s.emit('drain')
+    }
+    else if (event === 'error') {
+      var error = data[1]
+      if (typeof error === 'string') {
+        s.emit('error', new Error(error))
+      } else if (typeof error.message === 'string') {
+        var e = new Error(error.message)
+        extend(e, error)
+        s.emit('error', e)
+      } else {
+        s.emit('error', error)
+      }
+    }
+    else {
+      s.emit.apply(s, data)
+    }
+  })
+  .on('_end', function () {
+    destroyAll()
+    md._end()
+  })
+
+  function destroyAll (_err) {
+    md.removeListener('end', destroyAll)
+    md.removeListener('error', destroyAll)
+    md.removeListener('close', destroyAll)
+    var err = _err || new Error ('unexpected disconnection')
+    for (var i in streams) {
+      var s = streams[i]
+      s.destroyed = true
+      if (opts.error !== true) {
+        s.end()
+      } else {
+        s.emit('error', err)
+        s.destroy()
+      }
+    }
+  }
+
+  //end the stream once sub-streams have ended.
+  //(waits for them to close, like on a tcp server)
+
+  function createStream(id, meta, opts) {
+    streamCount ++
+    var s = through(function (data) {
+      if(!this.writable) {
+        var err = Error('stream is not writable: ' + id)
+        err.stream = this
+        return outer.emit("error", err)
+      }
+      md._data([s.id, 'data', data])
+    }, function () {
+      md._data([s.id, 'end'])
+      if (this.readable && !opts.allowHalfOpen && !this.ended) {
+        this.emit("end")
+      }
+    })
+    s.pause = function () {
+      md._data([s.id, 'pause'])
+    }
+    s.resume = function () {
+      md._data([s.id, 'resume'])
+    }
+    s.error = function (message) {
+      md._data([s.id, 'error', message])
+    }
+    s.once('close', function () {
+      delete streams[id]
+      streamCount --
+      md._data([s.id, 'close'])
+      if(streamCount === 0)
+        md.emit('zero')
+    })
+    s.writable = opts.writable
+    s.readable = opts.readable
+    streams[s.id = id] = s
+    s.meta = meta
+    return s
+  }
+
+  var outer = serializer(opts.wrapper)(md)
+
+  if(md !== outer)
+    md.on('connection', function (stream) {
+      outer.emit('connection', stream)
+    })
+
+  outer.close = function (cb) {
+    md.once('zero', function () {
+      md._end()
+      if(cb) cb()
+    })
+    return this
+  }
+
+  if(onConnection)
+    outer.on('connection', onConnection)
+
+  outer.on('connection', function (stream) {
+    //if mux-demux recieves a stream but there is nothing to handle it,
+    //then return an error to the other side.
+    //still trying to think of the best error message.
+    if(outer.listeners('connection').length === 1)
+      stream.error('remote end lacks connection listener ' 
+        + outer.listeners('connection').length)
+  })
+
+  var pipe = outer.pipe
+  outer.pipe = function (dest, opts) {
+    pipe.call(outer, dest, opts)
+    md.on('end', destroyAll)
+    md.on('close', destroyAll)
+    md.on('error', destroyAll)
+    return dest
+  }
+
+  outer.createStream = function (meta, opts) {
+    opts = opts || {}
+    if (!opts.writable && !opts.readable)
+      opts.readable = opts.writable = true
+    var s = createStream(createID(), meta, opts)
+    var _opts = {writable: opts.readable, readable: opts.writable}
+    md._data([s.id, 'new', {meta: meta, opts: _opts}])
+    return s
+  }
+  outer.createWriteStream = function (meta) {
+    return outer.createStream(meta, {writable: true, readable: false})
+  }
+  outer.createReadStream = function (meta) {
+    return outer.createStream(meta, {writable: false, readable: true})
+  }
+
+  return outer
+}
+
+module.exports = MuxDemux
+
+
+},{"through":16,"xtend":17,"duplex":18,"stream-serializer":19}],20:[function(require,module,exports){
+var events = require('events');
+var util = require('util');
+
+function Stream() {
+  events.EventEmitter.call(this);
+}
+util.inherits(Stream, events.EventEmitter);
+module.exports = Stream;
+// Backwards-compat with node 0.4.x
+Stream.Stream = Stream;
+
+Stream.prototype.pipe = function(dest, options) {
+  var source = this;
+
+  function ondata(chunk) {
+    if (dest.writable) {
+      if (false === dest.write(chunk) && source.pause) {
+        source.pause();
+      }
+    }
+  }
+
+  source.on('data', ondata);
+
+  function ondrain() {
+    if (source.readable && source.resume) {
+      source.resume();
+    }
+  }
+
+  dest.on('drain', ondrain);
+
+  // If the 'end' option is not supplied, dest.end() will be called when
+  // source gets the 'end' or 'close' events.  Only dest.end() once, and
+  // only when all sources have ended.
+  if (!dest._isStdio && (!options || options.end !== false)) {
+    dest._pipeCount = dest._pipeCount || 0;
+    dest._pipeCount++;
+
+    source.on('end', onend);
+    source.on('close', onclose);
+  }
+
+  var didOnEnd = false;
+  function onend() {
+    if (didOnEnd) return;
+    didOnEnd = true;
+
+    dest._pipeCount--;
+
+    // remove the listeners
+    cleanup();
+
+    if (dest._pipeCount > 0) {
+      // waiting for other incoming streams to end.
+      return;
+    }
+
+    dest.end();
+  }
+
+
+  function onclose() {
+    if (didOnEnd) return;
+    didOnEnd = true;
+
+    dest._pipeCount--;
+
+    // remove the listeners
+    cleanup();
+
+    if (dest._pipeCount > 0) {
+      // waiting for other incoming streams to end.
+      return;
+    }
+
+    dest.destroy();
+  }
+
+  // don't leave dangling pipes when there are errors.
+  function onerror(er) {
+    cleanup();
+    if (this.listeners('error').length === 0) {
+      throw er; // Unhandled stream error in pipe.
+    }
+  }
+
+  source.on('error', onerror);
+  dest.on('error', onerror);
+
+  // remove all the event listeners that were added.
+  function cleanup() {
+    source.removeListener('data', ondata);
+    dest.removeListener('drain', ondrain);
+
+    source.removeListener('end', onend);
+    source.removeListener('close', onclose);
+
+    source.removeListener('error', onerror);
+    dest.removeListener('error', onerror);
+
+    source.removeListener('end', cleanup);
+    source.removeListener('close', cleanup);
+
+    dest.removeListener('end', cleanup);
+    dest.removeListener('close', cleanup);
+  }
+
+  source.on('end', cleanup);
+  source.on('close', cleanup);
+
+  dest.on('end', cleanup);
+  dest.on('close', cleanup);
+
+  dest.emit('pipe', source);
+
+  // Allow for unix-like usage: A.pipe(B).pipe(C)
+  return dest;
+};
+
+},{"events":7,"util":6}],16:[function(require,module,exports){
+(function(process){var Stream = require('stream')
+
+// through
+//
+// a stream that does nothing but re-emit the input.
+// useful for aggregating a series of changing but not ending streams into one stream)
+
+exports = module.exports = through
+through.through = through
+
+//create a readable writable stream.
+
+function through (write, end, opts) {
+  write = write || function (data) { this.queue(data) }
+  end = end || function () { this.queue(null) }
+
+  var ended = false, destroyed = false, buffer = []
+  var stream = new Stream()
+  stream.readable = stream.writable = true
+  stream.paused = false
+
+//  stream.autoPause   = !(opts && opts.autoPause   === false)
+  stream.autoDestroy = !(opts && opts.autoDestroy === false)
+
+  stream.write = function (data) {
+    write.call(this, data)
+    return !stream.paused
+  }
+
+  function drain() {
+    while(buffer.length && !stream.paused) {
+      var data = buffer.shift()
+      if(null === data)
+        return stream.emit('end')
+      else
+        stream.emit('data', data)
+    }
+  }
+
+  stream.queue = stream.push = function (data) {
+    buffer.push(data)
+    drain()
+    return stream
+  }
+
+  //this will be registered as the first 'end' listener
+  //must call destroy next tick, to make sure we're after any
+  //stream piped from here.
+  //this is only a problem if end is not emitted synchronously.
+  //a nicer way to do this is to make sure this is the last listener for 'end'
+
+  stream.on('end', function () {
+    stream.readable = false
+    if(!stream.writable && stream.autoDestroy)
+      process.nextTick(function () {
+        stream.destroy()
+      })
+  })
+
+  function _end () {
+    stream.writable = false
+    end.call(stream)
+    if(!stream.readable && stream.autoDestroy)
+      stream.destroy()
+  }
+
+  stream.end = function (data) {
+    if(ended) return
+    ended = true
+    if(arguments.length) stream.write(data)
+    _end() // will emit or queue
+    return stream
+  }
+
+  stream.destroy = function () {
+    if(destroyed) return
+    destroyed = true
+    ended = true
+    buffer.length = 0
+    stream.writable = stream.readable = false
+    stream.emit('close')
+    return stream
+  }
+
+  stream.pause = function () {
+    if(stream.paused) return
+    stream.paused = true
+    return stream
+  }
+
+  stream.resume = function () {
+    if(stream.paused) {
+      stream.paused = false
+      stream.emit('resume')
+    }
+    drain()
+    //may have become paused again,
+    //as drain emits 'data'.
+    if(!stream.paused)
+      stream.emit('drain')
+    return stream
+  }
+  return stream
+}
+
+
+})(require("__browserify_process"))
+},{"stream":20,"__browserify_process":8}],17:[function(require,module,exports){
+module.exports = extend
+
+function extend(target) {
+    for (var i = 1; i < arguments.length; i++) {
+        var source = arguments[i],
+            keys = Object.keys(source)
+
+        for (var j = 0; j < keys.length; j++) {
+            var name = keys[j]
+            target[name] = source[name]
+        }
+    }
+
+    return target
+}
+},{}],18:[function(require,module,exports){
+(function(process){var Stream = require('stream')
+
+module.exports = function (write, end) {
+  var stream = new Stream() 
+  var buffer = [], ended = false, destroyed = false, emitEnd
+  stream.writable = stream.readable = true
+  stream.paused = false
+  stream._paused = false
+  stream.buffer = buffer
+  
+  stream
+    .on('pause', function () {
+      stream._paused = true
+    })
+    .on('drain', function () {
+      stream._paused = false
+    })
+   
+  function destroySoon () {
+    process.nextTick(stream.destroy.bind(stream))
+  }
+
+  if(write)
+    stream.on('_data', write)
+  if(end)
+    stream.on('_end', end)
+
+  //destroy the stream once both ends are over
+  //but do it in nextTick, so that other listeners
+  //on end have time to respond
+  stream.once('end', function () { 
+    stream.readable = false
+    if(!stream.writable) {
+      process.nextTick(function () {
+        stream.destroy()
+      })
+    }
+  })
+
+  stream.once('_end', function () { 
+    stream.writable = false
+    if(!stream.readable)
+      stream.destroy()
+  })
+
+  // this is the default write method,
+  // if you overide it, you are resposible
+  // for pause state.
+
+  
+  stream._data = function (data) {
+    if(!stream.paused && !buffer.length)
+      stream.emit('data', data)
+    else 
+      buffer.push(data)
+    return !(stream.paused || buffer.length)
+  }
+
+  stream._end = function (data) { 
+    if(data) stream._data(data)
+    if(emitEnd) return
+    emitEnd = true
+    //destroy is handled above.
+    stream.drain()
+  }
+
+  stream.write = function (data) {
+    stream.emit('_data', data)
+    return !stream._paused
+  }
+
+  stream.end = function () {
+    stream.writable = false
+    if(stream.ended) return
+    stream.ended = true
+    stream.emit('_end')
+  }
+
+  stream.drain = function () {
+    if(!buffer.length && !emitEnd) return
+    //if the stream is paused after just before emitEnd()
+    //end should be buffered.
+    while(!stream.paused) {
+      if(buffer.length) {
+        stream.emit('data', buffer.shift())
+        if(buffer.length == 0) {
+          stream.emit('_drain')
+        }
+      }
+      else if(emitEnd && stream.readable) {
+        stream.readable = false
+        stream.emit('end')
+        return
+      } else {
+        //if the buffer has emptied. emit drain.
+        return true
+      }
+    }
+  }
+  var started = false
+  stream.resume = function () {
+    //this is where I need pauseRead, and pauseWrite.
+    //here the reading side is unpaused,
+    //but the writing side may still be paused.
+    //the whole buffer might not empity at once.
+    //it might pause again.
+    //the stream should never emit data inbetween pause()...resume()
+    //and write should return !buffer.length
+    started = true
+    stream.paused = false
+    stream.drain() //will emit drain if buffer empties.
+    return stream
+  }
+
+  stream.destroy = function () {
+    if(destroyed) return
+    destroyed = ended = true     
+    buffer.length = 0
+    stream.emit('close')
+  }
+  var pauseCalled = false
+  stream.pause = function () {
+    started = true
+    stream.paused = true
+    stream.emit('_pause')
+    return stream
+  }
+  stream._pause = function () {
+    if(!stream._paused) {
+      stream._paused = true
+      stream.emit('pause')
+    }
+    return this
+  }
+  stream.paused = true
+  process.nextTick(function () {
+    //unless the user manually paused
+    if(started) return
+    stream.resume()
+  })
+ 
+  return stream
+}
+
+
+})(require("__browserify_process"))
+},{"stream":20,"__browserify_process":8}],19:[function(require,module,exports){
+
+var EventEmitter = require('events').EventEmitter
+
+exports = module.exports = function (wrapper) {
+
+  if('function' == typeof wrapper)
+    return wrapper
+  
+  return exports[wrapper] || exports.json
+}
+
+exports.json = function (stream) {
+
+  var write = stream.write
+  var soFar = ''
+
+  function parse (line) {
+    var js
+    try {
+      js = JSON.parse(line)
+      //ignore lines of whitespace...
+    } catch (err) { 
+      return stream.emit('error', err)
+      //return console.error('invalid JSON', line)
+    }
+    if(js !== undefined)
+      write.call(stream, js)
+  }
+
+  function onData (data) {
+    var lines = (soFar + data).split('\n')
+    soFar = lines.pop()
+    while(lines.length) {
+      parse(lines.shift())
+    }
+  }
+
+  stream.write = onData
+  
+  var end = stream.end
+
+  stream.end = function (data) {
+    if(data)
+      stream.write(data)
+    //if there is any left over...
+    if(soFar) {
+      parse(soFar)
+    }
+    return end.call(stream)
+  }
+
+  stream.emit = function (event, data) {
+
+    if(event == 'data') {
+      data = JSON.stringify(data) + '\n'
+    }
+    //since all stream events only use one argument, this is okay...
+    EventEmitter.prototype.emit.call(stream, event, data)
+  }
+
+  return stream
+//  return es.pipeline(es.split(), es.parse(), stream, es.stringify())
+}
+
+exports.raw = function (stream) {
+  return stream
+}
+
+
+},{"events":7}],14:[function(require,module,exports){
 var EventEmitter = require('events').EventEmitter
 var backoff = require('backoff')
 
@@ -1430,7 +1530,396 @@ function (createConnection) {
 
 }
 
-},{"events":13,"./widget":16,"backoff":17}],5:[function(require,module,exports){
+},{"events":7,"./widget":21,"backoff":22}],12:[function(require,module,exports){
+'use strict';
+var inherits     = require('util').inherits
+var EventEmitter = require('events').EventEmitter
+var Row          = require('./row')
+var between      = require('between')
+
+inherits(Set, EventEmitter)
+
+module.exports = Set
+
+//set
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/*
+  a set is just a query.
+  could expand this to enable replicating a subset of a document.
+  that could enable massive documents that are too large to fit in memory.
+  as long as they could be partitioned.
+
+  heh, join queries? or rather, recursive queries,
+  for when rows have sets.
+
+  that is my vibe. don't make a database you have to
+  _map_ to your application. pre-map the database.
+
+  could also specify sets like
+
+  //set of all things
+  {type: 'thing'}
+
+  //set of things with thier parts
+  { type: 'thing',
+    parts: {
+      parent_id: function (val) {return val == this.id}
+    }
+  }
+
+  or use map-reduces. remember, if the the reduce is
+  monotonic you don't have to remember each input.
+*/
+
+function Set(doc, key, value) {
+  var array = this._array = []
+  var rows = this.rows =  {}
+  var set = this
+  var filter
+
+  if ('function' === typeof key) {
+    filter = this.filter = key
+    key = null
+  } else {
+    //DO NOT CHANGE once you have created the set.
+    if(key === '__proto__') throw new Error('__proto__ is illegal key')
+    this.key = key
+    this.value = value
+  }
+
+  function add(row) {
+    if (rows[row.id]) {
+      return
+    }
+
+    array.push(row)
+    rows[row.id] = row
+    set.emit('add', row)
+
+    function remove (_, changed) {
+      if ((key && row.state[key] === value) ||
+          (filter && filter(row.state))
+      ) {
+        set.emit('changes', row, changed)
+        return
+      }
+      delete rows[row.id]
+      var i = array.indexOf(row)
+      if(~i) array.splice(i, 1)
+      set.emit('changes', row, changed)
+      set.emit('remove', row)
+      row.removeListener('changes', remove)
+    }
+
+    row.on('changes', remove)
+
+  }
+
+  if (!filter) {
+    doc.sets.on(key, function (row, changed) {
+      if(changed[key] !== value) return
+      add(row)
+    })
+  } else {
+    doc.on('create', function (row) {
+      if (filter(row.state)) {
+        add(row)
+      }
+    })
+  }
+
+
+  this.rm = this.remove = function (row) {
+    row = this.get(row)
+    if(!row) return
+    if (key) {
+      return row.set(key, null)
+    } else {
+      throw new Error("Set cannot remove rows with arbitary filters")
+    }
+  }
+
+  for(var id in doc.rows) {
+    var row = doc.get(id)
+    if (key && row.get(key) === value) {
+      add(row)
+    } else if (filter && filter(row.state)) {
+      add(row)
+    }
+  }
+
+  this.setMaxListeners(Infinity)
+
+}
+
+Set.prototype.onEach = function (callback) {
+  this.forEach(callback)
+  this.on("add", callback)
+}
+
+Set.prototype.asArray = function () {
+  return this._array
+}
+
+Set.prototype.toJSON = function () {
+  return this._array.map(function (e) {
+    return e.state
+  }).sort(function (a, b) {
+    return between.strord(a._sort || a.id, b._sort || b.id)
+  })
+}
+
+Set.prototype.each =
+Set.prototype.forEach = function (iter) {
+  return this._array.forEach(iter)
+}
+
+Set.prototype.get = function (id) {
+  if(!arguments.length)
+    return this.array
+  if(id === '__proto__') throw new Error('__proto__ is invalid id')
+  return (
+      'string' === typeof id ? this.rows[id]
+    : 'number' === typeof id ? this.rows[id]
+    : id && id.id            ? this.rows[id.id]
+    :                          null
+  )
+}
+
+Set.prototype.has = function (row) {
+  return this.get(row)
+}
+
+},{"util":6,"events":7,"./row":11,"between":23}],13:[function(require,module,exports){
+'use strict';
+
+var Set      = require('./set')
+var Row      = require('./row')
+var inherits = require('util').inherits
+var between  = require('between')
+
+module.exports = Seq
+
+function sort (array) {
+  return array.sort(function (a, b) {
+    return between.strord(a.get('_sort'), b.get('_sort'))
+  })
+}
+
+inherits(Seq, Set)
+
+function find (obj, iter) {
+
+  for(var k in obj) {
+    var v = obj[k]
+    if(iter(v, k, obj)) return v
+  }
+  return null
+}
+
+function Seq (doc, key, val) {
+  if(key == '__proto__')
+    throw new Error('__proto__ is invalid key')
+  
+  Set.call(this, doc, key, val)
+
+  if (typeof key !== 'string') {
+    key = null
+  }
+
+  var seq = this
+  this.on('changes', function (row, changes) {
+    if(!changes._sort) return
+    sort(seq._array)
+    //check if there is already an item with this sort key.
+    var prev =
+    find(seq._array, function (other) {
+      return other != row && other.get('_sort') == row.get('_sort')
+    })
+
+    //nudge it forward if it has the same key.
+    if(prev)
+      seq.insert(row, prev, seq.next(row))
+    else
+      seq.emit('move', row)
+  })
+  this.insert = function (obj, before, after) {
+
+    before = toKey(this.get(before) || '!')
+    after  = toKey(this.get(after)  || '~')
+
+    //must get id from the doc,
+    //because may be moving this item into this set.
+    if('string' === typeof obj)
+      obj = doc.rows[obj]
+
+    var _sort =
+       between.between(before, after )
+     + between.randstr(3) //add a random tail so it's hard
+                    //to concurrently add two items with the
+                    //same sort.
+
+    var r, changes
+    if(obj instanceof Row) {
+      r = obj
+      changes = {_sort: _sort}
+      if (key && r.get(key) != val) {
+        changes[key] = val
+      }
+      r.set(changes)
+    } else {
+      obj._sort = _sort
+      if (key) {
+        obj[key] = val
+      }
+      r = doc.set(id(obj), obj)
+    }
+    sort(this._array)
+    return r
+  }
+}
+
+function toKey (key) {
+
+  return (
+     'string' === typeof key ? key
+  :  key instanceof Row      ? key.get()._sort
+  :  key                     ? key._sort
+  : null
+  )
+
+}
+
+/*
+  items are relative to each other,
+  more like a linked list.
+  although it is possible to make an
+  index based interface, before after,
+  etc is more natural
+*/
+
+function max (ary, test, wantIndex) {
+  var max = null, _max = -1
+  if(!ary.length) return
+
+  for (var i = 0; i < ary.length; i++)
+    if(test(max, ary[i])) max = ary[_max = i]
+  return wantIndex ? _max : max
+}
+
+Seq.prototype.prev = function (key) {
+  key = toKey(this.get(key) || '~')
+  //find the greatest item that is less than `key`.
+  //since the list is kept in order,
+  //a binary search is used.
+  //think about that later
+  return max(this._array, function (M, m) {
+    if(toKey(m) < key)
+      return M ? toKey(m) > toKey(M) : true
+  })
+}
+
+Seq.prototype.next = function (key) {
+  key = toKey(this.get(key) || '!')
+  return max(this._array, function (M, m) {
+    if(toKey(m) > key)
+      return M ? toKey(m) < toKey(M) : true
+  })
+}
+
+function id(obj) {
+  return (obj.id
+  ||  obj._id
+  ||  '_' + Date.now()
+    + '_' + Math.round(Math.random()*1000)
+  )
+}
+
+Seq.prototype.before = function (obj, before) {
+  return this.insert(obj, this.prev(before), before)
+}
+
+Seq.prototype.after = function (obj, after) {
+  return this.insert(obj, after, this.next(after))
+}
+
+Seq.prototype.first = function () {
+  return this._array[0]
+}
+
+Seq.prototype.last = function () {
+  return this._array[this._array.length - 1]
+}
+
+Seq.prototype.indexOf = function (obj) {
+  return this._array.indexOf('string' == typeof obj ? this.rows[obj] : obj)
+}
+
+Seq.prototype.at = function (i) {
+  if('__proto__' === i) throw new Error('__proto__ invalid index')
+  return this._array[i]
+}
+
+Seq.prototype.unshift = function (obj) {
+  return this.insert(obj, '!', this.first())
+}
+
+Seq.prototype.push = function (obj) {
+  return this.insert(obj, this.last(), '~')
+}
+
+Seq.prototype.length = function () {
+  return this._array.length
+}
+
+Seq.prototype.pop = function () {
+  return this.remove(this.last())
+}
+
+Seq.prototype.shift = function () {
+  return this.remove(this.first())
+}
+
+
+},{"util":6,"./set":12,"./row":11,"between":23}],24:[function(require,module,exports){
+exports.createId = 
+function () {
+  return [1,1,1].map(function () {
+    return Math.random().toString(16).substring(2).toUpperCase()
+  }).join('')
+}
+
+exports.filter = function (update, sources) {
+  var ts = update[1]
+  var source = update[2]
+  return (!sources || !sources[source] || sources[source] < ts)
+}
+
+exports.protoIsIllegal = function (s) {
+  s.emit('invalid', new Error('"__proto__" is illegal property name'))
+  return null
+}
+
+function invalidUpdate(t) {
+  t.emit('invalid', new Error('invalid update'))
+}
+
+exports.validUpdate = function (t, update) {
+  if(!Array.isArray(update)) return invalidUpdate(t)
+  if('string' !== typeof update[1] || 'number' !== typeof update[2])
+    return invalidUpdate(t)
+}
+
+exports.sort = function (hist) {
+  return hist.sort(function (a, b) {
+    //sort by timestamps, then ids.
+    //there should never be a pair with equal timestamps
+    //and ids.
+    return a[1] - b[1] || (a[2] > b[2] ? 1 : -1)
+  })
+}
+
+},{}],9:[function(require,module,exports){
 (function(process){var protocol = require('dnode-protocol');
 var Stream = require('stream');
 var json = typeof JSON === 'object' ? JSON : require('jsonify');
@@ -1586,7 +2075,7 @@ dnode.prototype.destroy = function () {
 };
 
 })(require("__browserify_process"))
-},{"stream":12,"dnode-protocol":18,"jsonify":19,"__browserify_process":15}],7:[function(require,module,exports){
+},{"stream":20,"dnode-protocol":25,"jsonify":26,"__browserify_process":8}],15:[function(require,module,exports){
 var Stream = require('stream');
 var sockjs = require('sockjs-client');
 
@@ -1654,7 +2143,395 @@ module.exports = function (uri, cb) {
     return stream;
 };
 
-},{"stream":12,"sockjs-client":20}],20:[function(require,module,exports){
+},{"stream":20,"sockjs-client":27}],23:[function(require,module,exports){
+
+function inject (chars) {
+
+  chars = chars ||
+  '!0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz~'
+
+  chars = chars.split('').sort().join('')
+
+  var exports = between
+
+  exports.between   = between
+
+  exports.randstr   = randstr
+  exports.between   = between
+  exports.strord    = strord
+
+  exports.lo        = chars[0]
+  exports.hi        = chars[chars.length - 1]
+
+  exports.inject    = inject
+
+  function randstr(l) {
+    var str = ''
+    while(l--) 
+      str += chars[
+        Math.floor(
+          Math.random() * chars.length 
+        )
+      ]
+    return str
+  }
+
+  /*
+    SOME EXAMPLE STRINGS, IN ORDER
+   
+    0
+    00001
+    0001
+    001
+    001001
+    00101
+    0011
+    0011001
+    001100101
+    00110011
+    001101
+    00111
+    01  
+
+    if you never make a string that ends in the lowest char,
+    then it is always possible to make a string between two strings.
+    this is like how decimals never end in 0. 
+
+    example:
+
+    between('A', 'AB') 
+
+    ... 'AA' will sort between 'A' and 'AB' but then it is impossible
+    to make a string inbetween 'A' and 'AA'.
+    instead, return 'AAB', then there will be space.
+
+  */
+
+  function between (a, b) {
+
+    var s = '', i = 0
+
+    while (true) {
+
+      var _a = chars.indexOf(a[i])
+      var _b = chars.indexOf(b[i])
+     
+      if(_a == -1) _a = 0
+      if(_b == -1) _b = chars.length - 1
+
+      i++
+
+      var c = chars[
+          _a + 1 < _b 
+        ? Math.round((_a+_b)/2)
+        : _a
+      ]
+
+      s += c
+
+      if(a < s && s < b && c != exports.lo)
+        return s;
+    }
+  }
+
+  function strord (a, b) {
+    return (
+      a == b ?  0
+    : a <  b ? -1
+    :           1
+    )
+  }
+
+  between.strord
+
+  return between
+}
+
+
+module.exports = inject(null)
+
+},{}],10:[function(require,module,exports){
+var inherits     = require('util').inherits
+var Row          = require('./row')
+var between      = require('between')
+var Set          = require('./set')
+var Seq          = require('./seq')
+var Scuttlebutt  = require('scuttlebutt')
+var EventEmitter = require('events').EventEmitter
+var createId     = require('scuttlebutt/util').createId
+
+inherits(Doc, Scuttlebutt)
+
+function merge(to, from) {
+  for(var k in from)
+    to[k] = from[k]
+  return to
+}
+
+
+module.exports = Doc
+//doc
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/*
+  idea: instead of using a tombstone for deletes,
+  use a anti-tombstone to show something is alive.
+  breathing: count. -- updated by an authority.
+  set breathing to 0 to kill something.
+
+  if a node has rows that have been garbage collected on the server,
+  it will be obvious from the value of breathing.
+
+  node disconnects... makes changes...
+  other nodes delete some things, which get garbage collected.
+
+  node reconnects.
+  server updates the node, but only increments _breathing for some rows.
+
+  clearly, the nodes that do not have an upto date _breathing are either
+  dead, or where created by the node while it was offline.
+
+  would breathing need to be a vector clock?
+
+  if the disconneded node is still updating the rows,
+  maybe it shouldn't be deleted, that is, undeleted.
+
+  may be on to something here... but this needs more thinking.
+
+  will depend on how much churn something has...
+*/
+
+function order (a, b) {
+  return between.strord(a[1], b[1]) || between.strord(a[2], b[2])
+}
+
+function Doc (id) {
+  if (!(this instanceof Doc)) return new Doc(id)
+  //the id of the doc refers to the instance.
+  //that is, to the node.
+  //it's used to identify a node
+//  this.id = id || '#' + Math.round(Math.random()*1000)
+  this.rows = {}
+  this.hist = {}
+  this.recieved = {}
+  this.sets = new EventEmitter() //for tracking membership of sets.
+  this.setMaxListeners(Infinity)
+  this.sets.setMaxListeners(Infinity)
+  Scuttlebutt.call(this, id)
+
+}
+
+Doc.prototype.add = function (initial) {
+  var id = initial.id === undefined ? createId() : initial.id
+  if(id === '__proto__')
+    throw new Error('__proto__ is illegial id')
+  var r = this._add(id, 'local')
+  r._set(initial, 'local')
+  return r
+}
+
+Doc.prototype._add = function (id, source, change) {
+
+  var doc = this
+
+  if(id === '__proto__')
+    throw new Error('__proto__ is illegial id')
+  if(this.rows[id])
+    return this.rows[id]
+
+  var r = id instanceof Row ? id : new Row(id)
+  this.rows[r.id] = r
+
+  function track (changes, source) {
+    //console.log(changes, source)
+    doc.localUpdate([r.id, changes])
+  }
+
+  r.on('preupdate', track)
+
+  r.on('remove', function () {
+    r.removeAllListeners('preupdate')
+  })
+
+  r._new = true
+  return r
+}
+
+Doc.prototype.timeUpdated = function (row, key) {
+  var h = this.hist[row.id]
+  if(!h) return
+  return h[key][2]
+}
+
+Doc.prototype.set = function (id, change) {
+  if(id === '__proto__')
+    throw new Error('__proto__ is illegial id')
+  var r = this._add(id, 'local', change)
+  return r.set(change)
+}
+
+Doc.prototype.rm = function (id) {
+  this.set(id, null)
+}
+
+/*
+  histroy for each row is indexed by key.
+  key -> update that set that key.
+
+  so applying a change is as simple
+  as iterating over the keys in the rows hist
+  checking if the new update is more recent
+  than the hist update
+  if so, replace that keys hist.
+*/
+
+Doc.prototype.applyUpdate = function (update, source) {
+
+  //apply an update to a row.
+  //take into account histroy.
+  //and insert the change into the correct place.
+  if(!(Array.isArray(update[0])
+    && 'string' === typeof update[0][0]
+  )) return this.emit('invalid', new Error('invalid update'))
+
+  var id      = update[0][0]
+  var changes = update[0][1]
+  var timestamp = update[1]
+  var from    = update[2]
+
+  if(id === '__proto__')
+    return this.emit('invalid', new Error('__proto__ is illegial id'))
+
+  var changed = {}
+
+  var row = this._add(id, source)
+  var hist = this.hist[id] = this.hist[id] || {}
+  var emit = false, oldnews = false
+
+
+  //remember the most recent update from each node.
+  //now handled my scuttlebutt.
+//  if(!row.validate(changes)) return
+
+  if (changes === null) {
+
+    // clean up the history
+    for(var key in row.state) {
+      if(row.state.hasOwnProperty(key)) {
+          if(!hist[key] || order(hist[key], update) < 0) {
+            if(hist[key]) this.emit('_remove', hist[key])
+            hist[key] = [ null, update[1], update[2]]
+            emit = true
+          }
+      }
+    }
+
+    // remove from all sets that contain row
+    for (var setId in this.sets) {
+      var isSet = setId.indexOf(':') > 0
+      var set = this.sets[setId]
+      var setContainsRow = isSet && set && set.get(row.id)
+      if (setContainsRow) set.rm(row)
+    }
+
+    // delete from the doc rows
+    delete this.rows[id]
+    this.emit('remove', row)
+  }
+  else {
+    for(var key in changes) {
+      if(changes.hasOwnProperty(key)) { 
+        var value = changes[key]
+        if(!hist[key] || order(hist[key], update) < 0) {
+          if(hist[key]) this.emit('_remove', hist[key])
+          hist[key] = update
+          changed[key] = value
+          emit = true
+        }
+      }
+    }
+  }
+
+//  probably, there may be mulitple sets that listen to the same key,
+//  but activate on different values...
+//
+//  hang on, in the mean time, I will probably only be managing n < 10 sets.
+//  at once,
+
+  merge(row.state, changed)
+  for(var k in changed)
+    this.sets.emit(k, row, changed)
+
+  if(!emit) return
+
+  if(row._new) {
+    this.emit('add', row)
+    this.emit('create', row) //alias
+    row._new = false
+  }
+  this.emit('_update', update)
+  row.emit('update', update, changed)
+  row.emit('changes', changes, changed)
+  row.emit('change', changed) //installing this in paralel, so tests still pass.
+  //will depreciate the old way later.
+  this.emit('update', update, source)   //rename this event to 'data' or 'diff'?
+  this.emit('row_update', row)          //rename this event to 'update'
+}
+
+Doc.prototype.history = function (sources) {
+  var h = []
+  for (var id in this.hist) {
+    var hist = this.hist[id]
+    for (var k in hist) {
+      if(!~h.indexOf(hist[k]) && Scuttlebutt.filter(hist[k], sources))
+        h.push(hist[k])
+    }
+  }
+  return h.sort(order)
+}
+
+function _set(self, key, val, type) {
+  var id = typeof key === 'string' && key + ':' + val
+  if(id && self.sets[id]) {
+    return self.sets[id]
+  }
+
+  var set = new type(self, key, val)
+  if (id) {
+    self.sets[id] = set
+  }
+  return set
+}
+
+
+Doc.prototype.createSet = function (key, val) {
+  if(key === '__proto__')
+    throw new Error('__proto__ is invalid key')
+  return _set(this, key, val, Set)
+}
+
+Doc.prototype.createSeq = function (key, val) {
+  if(key === '__proto__')
+    throw new Error('__proto__ is invalid key')
+  return _set(this, key, val, Seq)
+}
+
+Doc.prototype.toJSON = function () {
+  var j = {}
+  for (var k in this.rows) {
+    if(this.rows.hasOwnProperty(k))
+      j[k] = this.rows[k].state
+  }
+  return j
+}
+//retrive a reference to a row.
+//if the row is not created yet, create
+Doc.prototype.get = function (id) {
+  if(id === '__proto__') throw new Error('__proto__ is illegal id')
+  return this.rows[id] = this.rows[id] || this._add(new Row(id), 'local')
+}
+
+
+},{"util":6,"events":7,"./row":11,"./set":12,"./seq":13,"scuttlebutt/util":24,"between":23,"scuttlebutt":28}],27:[function(require,module,exports){
 (function(){/* SockJS client, version 0.3.1.7.ga67f.dirty, http://sockjs.org, MIT License
 
 Copyright (c) 2011-2012 VMware, Inc.
@@ -3980,7 +4857,40 @@ if (typeof module === 'object' && module && module.exports) {
 
 
 })()
-},{}],16:[function(require,module,exports){
+},{}],22:[function(require,module,exports){
+/*
+ * Copyright (c) 2012 Mathieu Turcotte
+ * Licensed under the MIT license.
+ */
+
+var Backoff = require('./lib/backoff'),
+    FibonacciBackoffStrategy = require('./lib/strategy/fibonacci'),
+    ExponentialBackoffStrategy = require('./lib/strategy/exponential');
+
+module.exports.Backoff = Backoff;
+module.exports.FibonacciStrategy = FibonacciBackoffStrategy;
+module.exports.ExponentialStrategy = ExponentialBackoffStrategy;
+
+/**
+ * Constructs a Fibonacci backoff.
+ * @param options Fibonacci backoff strategy arguments.
+ * @see FibonacciBackoffStrategy
+ */
+module.exports.fibonacci = function(options) {
+    return new Backoff(new FibonacciBackoffStrategy(options));
+};
+
+/**
+ * Constructs an exponential backoff.
+ * @param options Exponential strategy arguments.
+ * @see ExponentialBackoffStrategy
+ */
+module.exports.exponential = function(options) {
+    return new Backoff(new ExponentialBackoffStrategy(options));
+};
+
+
+},{"./lib/backoff":29,"./lib/strategy/exponential":30,"./lib/strategy/fibonacci":31}],21:[function(require,module,exports){
 
 var h = require('hyperscript')
 var o = require('observable')
@@ -4029,40 +4939,71 @@ module.exports = function (emitter) {
   return el
 }
 
-},{"hyperscript":21,"observable":22}],17:[function(require,module,exports){
+},{"hyperscript":32,"observable":33}],29:[function(require,module,exports){
 /*
  * Copyright (c) 2012 Mathieu Turcotte
  * Licensed under the MIT license.
  */
 
-var Backoff = require('./lib/backoff'),
-    FibonacciBackoffStrategy = require('./lib/strategy/fibonacci'),
-    ExponentialBackoffStrategy = require('./lib/strategy/exponential');
-
-module.exports.Backoff = Backoff;
-module.exports.FibonacciStrategy = FibonacciBackoffStrategy;
-module.exports.ExponentialStrategy = ExponentialBackoffStrategy;
+var events = require('events'),
+    util = require('util');
 
 /**
- * Constructs a Fibonacci backoff.
- * @param options Fibonacci backoff strategy arguments.
- * @see FibonacciBackoffStrategy
+ * Backoff driver.
+ * @param backoffStrategy Backoff delay generator/strategy.
+ * @constructor
  */
-module.exports.fibonacci = function(options) {
-    return new Backoff(new FibonacciBackoffStrategy(options));
+function Backoff(backoffStrategy) {
+    events.EventEmitter.call(this);
+
+    this.backoffStrategy_ = backoffStrategy;
+    this.backoffNumber_ = 0;
+    this.backoffDelay_ = 0;
+    this.timeoutID_ = -1;
+
+    this.handlers = {
+        backoff: this.onBackoff_.bind(this)
+    };
+}
+util.inherits(Backoff, events.EventEmitter);
+
+/**
+ * Starts a backoff operation.
+ */
+Backoff.prototype.backoff = function() {
+    if (this.timeoutID_ !== -1) {
+        throw new Error('Backoff in progress.');
+    }
+
+    this.backoffDelay_ = this.backoffStrategy_.next();
+    this.timeoutID_ = setTimeout(this.handlers.backoff, this.backoffDelay_);
+    this.emit('backoff', this.backoffNumber_, this.backoffDelay_);
 };
 
 /**
- * Constructs an exponential backoff.
- * @param options Exponential strategy arguments.
- * @see ExponentialBackoffStrategy
+ * Backoff completion handler.
+ * @private
  */
-module.exports.exponential = function(options) {
-    return new Backoff(new ExponentialBackoffStrategy(options));
+Backoff.prototype.onBackoff_ = function() {
+    this.timeoutID_ = -1;
+    this.emit('ready', this.backoffNumber_++, this.backoffDelay_);
 };
 
+/**
+ * Stops any backoff operation and resets the backoff
+ * delay to its inital value.
+ */
+Backoff.prototype.reset = function() {
+    this.backoffNumber_ = 0;
+    this.backoffStrategy_.reset();
+    clearTimeout(this.timeoutID_);
+    this.timeoutID_ = -1;
+};
 
-},{"./lib/backoff":23,"./lib/strategy/fibonacci":24,"./lib/strategy/exponential":25}],22:[function(require,module,exports){
+module.exports = Backoff;
+
+
+},{"events":7,"util":6}],33:[function(require,module,exports){
 ;(function () {
 
 // bind a to b -- One Way Binding
@@ -4262,71 +5203,7 @@ if('object' === typeof module) module.exports = exports
 else                           this.observable = exports
 })()
 
-},{}],23:[function(require,module,exports){
-/*
- * Copyright (c) 2012 Mathieu Turcotte
- * Licensed under the MIT license.
- */
-
-var events = require('events'),
-    util = require('util');
-
-/**
- * Backoff driver.
- * @param backoffStrategy Backoff delay generator/strategy.
- * @constructor
- */
-function Backoff(backoffStrategy) {
-    events.EventEmitter.call(this);
-
-    this.backoffStrategy_ = backoffStrategy;
-    this.backoffNumber_ = 0;
-    this.backoffDelay_ = 0;
-    this.timeoutID_ = -1;
-
-    this.handlers = {
-        backoff: this.onBackoff_.bind(this)
-    };
-}
-util.inherits(Backoff, events.EventEmitter);
-
-/**
- * Starts a backoff operation.
- */
-Backoff.prototype.backoff = function() {
-    if (this.timeoutID_ !== -1) {
-        throw new Error('Backoff in progress.');
-    }
-
-    this.backoffDelay_ = this.backoffStrategy_.next();
-    this.timeoutID_ = setTimeout(this.handlers.backoff, this.backoffDelay_);
-    this.emit('backoff', this.backoffNumber_, this.backoffDelay_);
-};
-
-/**
- * Backoff completion handler.
- * @private
- */
-Backoff.prototype.onBackoff_ = function() {
-    this.timeoutID_ = -1;
-    this.emit('ready', this.backoffNumber_++, this.backoffDelay_);
-};
-
-/**
- * Stops any backoff operation and resets the backoff
- * delay to its inital value.
- */
-Backoff.prototype.reset = function() {
-    this.backoffNumber_ = 0;
-    this.backoffStrategy_.reset();
-    clearTimeout(this.timeoutID_);
-    this.timeoutID_ = -1;
-};
-
-module.exports = Backoff;
-
-
-},{"events":13,"util":14}],18:[function(require,module,exports){
+},{}],25:[function(require,module,exports){
 var EventEmitter = require('events').EventEmitter;
 var scrubber = require('./lib/scrub');
 var objectKeys = require('./lib/keys');
@@ -4453,18 +5330,18 @@ Proto.prototype.apply = function (f, args) {
     catch (err) { this.emit('error', err) }
 };
 
-},{"events":13,"./lib/scrub":26,"./lib/keys":27,"./lib/foreach":28,"./lib/is_enum":29}],19:[function(require,module,exports){
+},{"events":7,"./lib/scrub":34,"./lib/keys":35,"./lib/foreach":36,"./lib/is_enum":37}],26:[function(require,module,exports){
 exports.parse = require('./lib/parse');
 exports.stringify = require('./lib/stringify');
 
-},{"./lib/parse":30,"./lib/stringify":31}],27:[function(require,module,exports){
+},{"./lib/parse":38,"./lib/stringify":39}],35:[function(require,module,exports){
 module.exports = Object.keys || function (obj) {
     var keys = [];
     for (var key in obj) keys.push(key);
     return keys;
 };
 
-},{}],28:[function(require,module,exports){
+},{}],36:[function(require,module,exports){
 module.exports = function forEach (xs, f) {
     if (xs.forEach) return xs.forEach(f)
     for (var i = 0; i < xs.length; i++) {
@@ -4472,7 +5349,7 @@ module.exports = function forEach (xs, f) {
     }
 }
 
-},{}],30:[function(require,module,exports){
+},{}],38:[function(require,module,exports){
 var at, // The index of the current character
     ch, // The current character
     escapee = {
@@ -4747,7 +5624,7 @@ module.exports = function (source, reviver) {
     }({'': result}, '')) : result;
 };
 
-},{}],31:[function(require,module,exports){
+},{}],39:[function(require,module,exports){
 var cx = /[\u0000\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
     escapable = /[\\\"\x00-\x1f\x7f-\x9f\u00ad\u0600-\u0604\u070f\u17b4\u17b5\u200c-\u200f\u2028-\u202f\u2060-\u206f\ufeff\ufff0-\uffff]/g,
     gap,
@@ -4903,7 +5780,44 @@ module.exports = function (value, replacer, space) {
     return str('', {'': value});
 };
 
-},{}],24:[function(require,module,exports){
+},{}],30:[function(require,module,exports){
+/*
+ * Copyright (c) 2012 Mathieu Turcotte
+ * Licensed under the MIT license.
+ */
+
+var util = require('util');
+
+var BackoffStrategy = require('./strategy');
+
+/**
+ * Exponential backoff strategy.
+ * @extends BackoffStrategy
+ */
+function ExponentialBackoffStrategy(options) {
+    BackoffStrategy.call(this, options);
+    this.backoffDelay_ = 0;
+    this.nextBackoffDelay_ = this.getInitialDelay();
+}
+util.inherits(ExponentialBackoffStrategy, BackoffStrategy);
+
+/** @inheritDoc */
+ExponentialBackoffStrategy.prototype.next_ = function() {
+    this.backoffDelay_ = Math.min(this.nextBackoffDelay_, this.getMaxDelay());
+    this.nextBackoffDelay_ = this.backoffDelay_ * 2;
+    return this.backoffDelay_;
+};
+
+/** @inheritDoc */
+ExponentialBackoffStrategy.prototype.reset_ = function() {
+    this.backoffDelay_ = 0;
+    this.nextBackoffDelay_ = this.getInitialDelay();
+};
+
+module.exports = ExponentialBackoffStrategy;
+
+
+},{"util":6,"./strategy":40}],31:[function(require,module,exports){
 /*
  * Copyright (c) 2012 Mathieu Turcotte
  * Licensed under the MIT license.
@@ -4941,44 +5855,303 @@ FibonacciBackoffStrategy.prototype.reset_ = function() {
 module.exports = FibonacciBackoffStrategy;
 
 
-},{"util":14,"./strategy":32}],25:[function(require,module,exports){
-/*
- * Copyright (c) 2012 Mathieu Turcotte
- * Licensed under the MIT license.
- */
+},{"util":6,"./strategy":40}],28:[function(require,module,exports){
+(function(process){var EventEmitter = require('events').EventEmitter
+var i = require('iterate')
+var duplex = require('duplex')
+var inherits = require('util').inherits
+var serializer = require('stream-serializer')
+var u = require('./util')
+var timestamp = require('monotonic-timestamp')
 
-var util = require('util');
+exports = 
+module.exports = Scuttlebutt
 
-var BackoffStrategy = require('./strategy');
+exports.createID = u.createID
+exports.updateIsRecent = u.filter
+exports.filter = u.filter
+exports.timestamp = timestamp
 
-/**
- * Exponential backoff strategy.
- * @extends BackoffStrategy
- */
-function ExponentialBackoffStrategy(options) {
-    BackoffStrategy.call(this, options);
-    this.backoffDelay_ = 0;
-    this.nextBackoffDelay_ = this.getInitialDelay();
+function dutyOfSubclass() {
+  throw new Error('method must be implemented by subclass')
 }
-util.inherits(ExponentialBackoffStrategy, BackoffStrategy);
 
-/** @inheritDoc */
-ExponentialBackoffStrategy.prototype.next_ = function() {
-    this.backoffDelay_ = Math.min(this.nextBackoffDelay_, this.getMaxDelay());
-    this.nextBackoffDelay_ = this.backoffDelay_ * 2;
-    return this.backoffDelay_;
-};
+function validate (data) {
+  if(!(Array.isArray(data) 
+    && 'string' === typeof data[2]
+    && '__proto__'     !== data[2] //THIS WOULD BREAK STUFF
+    && 'number' === typeof data[1]
+  )) return false
 
-/** @inheritDoc */
-ExponentialBackoffStrategy.prototype.reset_ = function() {
-    this.backoffDelay_ = 0;
-    this.nextBackoffDelay_ = this.getInitialDelay();
-};
+  return true
+}
 
-module.exports = ExponentialBackoffStrategy;
+var emit = EventEmitter.prototype.emit
+
+inherits (Scuttlebutt, EventEmitter)
+
+function Scuttlebutt (opts) {
+
+  if(!(this instanceof Scuttlebutt)) return new Scuttlebutt(opts)
+  var id = 'string' === typeof opts ? opts : opts && opts.id
+  this.sources = {}
+  this.setMaxListeners(Number.MAX_VALUE)
+  //count how many other instances we are replicating to.
+  this._streams = 0
+  if(opts && opts.sign && opts.verify) {
+    this.setId(opts.id || opts.createId())
+    this._sign   = opts.sign
+    this._verify = opts.verify
+  } else {
+    this.setId(id || u.createId())
+  }
+}
+
+var sb = Scuttlebutt.prototype
+
+var emit = EventEmitter.prototype.emit
+
+sb.applyUpdate = dutyOfSubclass
+sb.history      = dutyOfSubclass
+
+sb.localUpdate = function (trx) {
+  this._update([trx, timestamp(), this.id])
+  return this
+}
+
+sb._update = function (update) {
+  //validated when it comes into the stream
+  var ts = update[1]
+  var source = update[2]
+  //if this message is old for it's source,
+  //ignore it. it's out of order.
+  //each node must emit it's changes in order!
+  
+  var latest = this.sources[source]
+  if(latest && latest >= ts)
+    return emit.call(this, 'old_data', update), false
+
+  this.sources[source] = ts
+
+  var self = this
+  function didVerification (err, verified) {
+
+    // I'm not sure how what should happen if a async verification
+    // errors. if it's an key not found - that is a verification fail,
+    // not a error. if it's genunie error, really you should queue and 
+    // try again? or replay the message later
+    // -- this should be done my the security plugin though, not scuttlebutt.
+
+    if(err)
+      return emit.call(self, 'error', err)
+
+    if(!verified)
+      return emit.call(self, 'unverified_data', update)
+
+    // check if this message is older than
+    // the value we already have.
+    // do nothing if so
+    // emit an 'old_data' event because i'll want to track how many
+    // unnecessary messages are sent.
+
+    if(self.applyUpdate(update))
+      emit.call(self, '_update', update) //write to stream.
+  }
+
+  if(source !== this.id) {
+    if(this._verify)
+      this._verify(update, didVerification)
+    else
+      didVerification(null, true)
+  } else {
+    if(this._sign) {
+      //could make this async easily enough.
+      update[3] = this._sign(update)
+    }
+    didVerification(null, true)
+  }
+
+  return true
+}
+
+sb.createStream = function (opts) {
+  var self = this
+  //the sources for the remote end.
+  var sources = {}, other
+  var syncSent = false, syncRecv = false
+
+  this._streams ++
+
+  opts = opts || {}
+  var d = duplex()
+  d.name = opts.name
+  var outer = serializer(opts && opts.wrapper)(d)
+  outer.inner = d
+
+  d.writable = opts.writable !== false
+  d.readable = opts.readable !== false
+
+  syncRecv   = !d.writable
+  syncSent   = !d.readable
+
+  var tail = opts.tail !== false //default to tail=true
+
+  function start (data) {
+    //when the digest is recieved from the other end,
+    //send the history.
+    //merge with the current list of sources.
+    sources = data.clock
+    i.each(self.history(sources), function (data) {d._data(data)})
+    
+    outer.emit('header', data)
+    d._data('SYNC')
+    //when we have sent all history
+    outer.emit('syncSent')
+    syncSent = true
+    //when we have recieved all histoyr
+    //emit 'synced' when this stream has synced.
+    if(syncRecv) outer.emit('sync'), outer.emit('synced')
+    if(!tail) d._end()
+  }
+
+  d
+    .on('_data', function (data) {
+      //if it's an array, it's an update.
+      if(Array.isArray(data)) {
+        if(validate(data))
+          return self._update(data)
+      }
+      //if it's an object, it's a scuttlebut digest.
+      else if('object' === typeof data && data)
+        start(data)
+      else if('string' === typeof data && data == 'SYNC') {
+        syncRecv = true
+        outer.emit('syncRecieved')
+        if(syncSent) outer.emit('sync'), outer.emit('synced')
+      }
+    }).on('_end', function () {
+      d._end()
+    })
+    .on('close', function () {
+      self.removeListener('_update', onUpdate)
+      //emit the number of streams that are remaining...
+      //this will be used for memory management...
+      self._streams --
+      emit.call(self, 'unstream', self._streams)
+    })
+
+  if(opts && opts.tail === false) {
+    outer.on('sync', function () {
+      process.nextTick(function () {
+        d._end()
+      })
+    })
+  }
+  function onUpdate (update) { //value, source, ts
+    if(!validate(update) || !u.filter(update, sources))
+      return
+
+    d._data(update)
+
+    //really, this should happen before emitting.
+    var ts = update[1]
+    var source = update[2]
+    sources[source] = ts
+  }
+
+  var outgoing = { id : self.id, clock : self.sources }
+
+  if (opts && opts.meta) outgoing.meta = opts.meta
+
+  if(d.readable) {
+    d._data(outgoing)
+    if(!d.writable)
+      start({clock:{}})
+    if(tail)
+      self.on('_update', onUpdate)
+  }
+
+  self.once('dispose', function () {
+    d.end()
+  })
+
+  return outer
+}
+
+sb.createWriteStream = function (opts) {
+  opts = opts || {}
+  opts.writable = true; opts.readable = false
+  return this.createStream(opts)
+}
+
+sb.createReadStream = function (opts) {
+  opts = opts || {}
+  opts.writable = false; opts.readable = true
+  return this.createStream(opts)
+}
+
+sb.dispose = function () {
+  emit.call(this, 'dispose')
+}
+
+sb.setId = function (id) {
+  if('__proto__' === id) throw new Error('__proto__ is invalid id')
+  if(id == null) throw new Error('null is not invalid id')
+  this.id = id
+  return this
+}
+
+function streamDone(stream, listener) {
+
+  function remove () {
+    stream.removeListener('end',   onDone)
+    stream.removeListener('error', onDone)
+    stream.removeListener('close',   onDone)
+  }
+  function onDone (arg) {
+    remove()
+    listener.call(this, arg)
+  }
+
+  //this makes emitter.removeListener(event, listener) still work
+  onDone.listener = listener
+
+  stream.on('end',   onDone)
+  stream.on('error', onDone)
+  stream.on('close', onDone)
+}
+
+//create another instance of this scuttlebutt,
+//that is in sync and attached to this instance.
+sb.clone = function () {
+  var A = this
+  var B = new (A.constructor)
+  B.setId(A.id) //same id. think this will work...
+
+  A._clones = (A._clones || 0) + 1
+
+  var a = A.createStream({wrapper: 'raw'})
+  var b = B.createStream({wrapper: 'raw'})
+
+  //all updates must be sync, so make sure pause never happens.
+  a.pause = b.pause = function noop(){}
+
+  streamDone(b, function () {
+    A._clones--
+    emit.call(A, 'unclone', A._clones)
+  })
+
+  a.pipe(b).pipe(a)
+  //resume both streams, so that the new instance is brought up to date immediately.
+  a.resume()
+  b.resume()
+
+  return B
+}
 
 
-},{"util":14,"./strategy":32}],29:[function(require,module,exports){
+})(require("__browserify_process"))
+},{"events":7,"util":6,"./util":24,"iterate":41,"duplex":42,"stream-serializer":43,"monotonic-timestamp":44,"__browserify_process":8}],37:[function(require,module,exports){
 var objectKeys = require('./keys');
 
 module.exports = function (obj, key) {
@@ -4992,7 +6165,161 @@ module.exports = function (obj, key) {
     return false;
 };
 
-},{"./keys":27}],32:[function(require,module,exports){
+},{"./keys":35}],41:[function(require,module,exports){
+
+//
+// adds all the fields from obj2 onto obj1
+//
+
+var each = exports.each = function (obj,iterator){
+ var keys = Object.keys(obj)
+ keys.forEach(function (key){
+  iterator(obj[key],key,obj) 
+ })
+}
+
+var RX = /sadf/.constructor
+function rx (iterator ){
+  return iterator instanceof RX ? function (str) { 
+      var m = iterator.exec(str)
+      return m && (m[1] ? m[1] : m[0]) 
+    } : iterator
+}
+
+var times = exports.times = function () {
+  var args = [].slice.call(arguments)
+    , iterator = rx(args.pop())
+    , m = args.pop()
+    , i = args.shift()
+    , j = args.shift()
+    , diff, dir
+    , a = []
+    
+    i = 'number' === typeof i ? i : 1
+    diff = j ? j - i : 1
+    dir = i < m
+    if(m == i)
+      throw new Error('steps cannot be the same: '+m+', '+i)
+  for (; dir ? i <= m : m <= i; i += diff)
+    a.push(iterator(i))
+  return a
+}
+
+var map = exports.map = function (obj, iterator){
+  iterator = rx(iterator)
+  if(Array.isArray(obj))
+    return obj.map(iterator)
+  if('number' === typeof obj)
+    return times.apply(null, [].slice.call(arguments))  
+  //return if null ?  
+  var keys = Object.keys(obj)
+    , r = {}
+  keys.forEach(function (key){
+    r[key] = iterator(obj[key],key,obj) 
+  })
+  return r
+}
+
+var findReturn = exports.findReturn = function (obj, iterator) {
+  iterator = rx(iterator)
+  if(obj == null)
+    return
+  var keys = Object.keys(obj)
+    , l = keys.length
+  for (var i = 0; i < l; i ++) {
+    var key = keys[i]
+      , value = obj[key]
+    var r = iterator(value, key)
+    if(r) return r
+  }
+}
+
+var find = exports.find = function (obj, iterator) { 
+  iterator = rx(iterator)
+  return findReturn (obj, function (v, k) {
+    var r = iterator(v, k)
+    if(r) return v
+  })
+}
+
+var findKey = exports.findKey = function (obj, iterator) { 
+  iterator = rx(iterator)
+  return findReturn (obj, function (v, k) {
+    var r = iterator(v, k)
+    if(r) return k
+  })
+}
+
+var filter = exports.filter = function (obj, iterator){
+  iterator = rx (iterator)
+
+  if(Array.isArray(obj))
+    return obj.filter(iterator)
+  
+  var keys = Object.keys(obj)
+    , r = {}
+  keys.forEach(function (key){
+    var v
+    if(iterator(v = obj[key],key,obj))
+      r[key] = v
+  })
+  return r 
+}
+
+var mapKeys = exports.mapKeys = function (ary, iterator){
+  var r = {}
+  iterator = rx(iterator)
+  each(ary, function (v,k){
+    r[v] = iterator(v,k)
+  })
+  return r
+}
+
+
+var mapToArray = exports.mapToArray = function (ary, iterator){
+  var r = []
+  iterator = rx(iterator)
+  each(ary, function (v,k){
+    r.push(iterator(v,k))
+  })
+  return r
+}
+
+var path = exports.path = function (object, path) {
+
+  for (var i in path) {
+    if(object == null) return undefined
+    var key = path[i]
+    object = object[key]
+  }
+  return object
+}
+
+/*
+NOTE: naive implementation. 
+`match` must not contain circular references.
+*/
+
+var setPath = exports.setPath = function (object, path, value) {
+
+  for (var i in path) {
+    var key = path[i]
+    if(object[key] == null) object[key] = ( 
+      i + 1 == path.length ? value : {}
+    )
+    object = object[key]
+  }
+}
+
+var join = exports.join = function (A, B, it) {
+  each(A, function (a, ak) {
+    each(B, function (b, bk) {
+      it(a, b, ak, bk)
+    })
+  })
+}
+
+},{}],40:[function(require,module,exports){
 /*
  * Copyright (c) 2012 Mathieu Turcotte
  * Licensed under the MIT license.
@@ -5091,7 +6418,271 @@ BackoffStrategy.prototype.reset_ = function() {
 module.exports = BackoffStrategy;
 
 
-},{"events":13,"util":14}],21:[function(require,module,exports){
+},{"events":7,"util":6}],42:[function(require,module,exports){
+(function(process){var Stream = require('stream')
+
+module.exports = function (write, end) {
+  var stream = new Stream() 
+  var buffer = [], ended = false, destroyed = false, emitEnd
+  stream.writable = stream.readable = true
+  stream.paused = false
+  stream._paused = false
+  stream.buffer = buffer
+  
+  stream
+    .on('pause', function () {
+      stream._paused = true
+    })
+    .on('drain', function () {
+      stream._paused = false
+    })
+   
+  function destroySoon () {
+    process.nextTick(stream.destroy.bind(stream))
+  }
+
+  if(write)
+    stream.on('_data', write)
+  if(end)
+    stream.on('_end', end)
+
+  //destroy the stream once both ends are over
+  //but do it in nextTick, so that other listeners
+  //on end have time to respond
+  stream.once('end', function () { 
+    stream.readable = false
+    if(!stream.writable) {
+      process.nextTick(function () {
+        stream.destroy()
+      })
+    }
+  })
+
+  stream.once('_end', function () { 
+    stream.writable = false
+    if(!stream.readable)
+      stream.destroy()
+  })
+
+  // this is the default write method,
+  // if you overide it, you are resposible
+  // for pause state.
+
+  
+  stream._data = function (data) {
+    if(!stream.paused && !buffer.length)
+      stream.emit('data', data)
+    else 
+      buffer.push(data)
+    return !(stream.paused || buffer.length)
+  }
+
+  stream._end = function (data) { 
+    if(data) stream._data(data)
+    if(emitEnd) return
+    emitEnd = true
+    //destroy is handled above.
+    stream.drain()
+  }
+
+  stream.write = function (data) {
+    stream.emit('_data', data)
+    return !stream._paused
+  }
+
+  stream.end = function () {
+    stream.writable = false
+    if(stream.ended) return
+    stream.ended = true
+    stream.emit('_end')
+  }
+
+  stream.drain = function () {
+    if(!buffer.length && !emitEnd) return
+    //if the stream is paused after just before emitEnd()
+    //end should be buffered.
+    while(!stream.paused) {
+      if(buffer.length) {
+        stream.emit('data', buffer.shift())
+        if(buffer.length == 0) {
+          stream.emit('_drain')
+        }
+      }
+      else if(emitEnd && stream.readable) {
+        stream.readable = false
+        stream.emit('end')
+        return
+      } else {
+        //if the buffer has emptied. emit drain.
+        return true
+      }
+    }
+  }
+  var started = false
+  stream.resume = function () {
+    //this is where I need pauseRead, and pauseWrite.
+    //here the reading side is unpaused,
+    //but the writing side may still be paused.
+    //the whole buffer might not empity at once.
+    //it might pause again.
+    //the stream should never emit data inbetween pause()...resume()
+    //and write should return !buffer.length
+    started = true
+    stream.paused = false
+    stream.drain() //will emit drain if buffer empties.
+    return stream
+  }
+
+  stream.destroy = function () {
+    if(destroyed) return
+    destroyed = ended = true     
+    buffer.length = 0
+    stream.emit('close')
+  }
+  var pauseCalled = false
+  stream.pause = function () {
+    started = true
+    stream.paused = true
+    stream.emit('_pause')
+    return stream
+  }
+  stream._pause = function () {
+    if(!stream._paused) {
+      stream._paused = true
+      stream.emit('pause')
+    }
+    return this
+  }
+  stream.paused = true
+  process.nextTick(function () {
+    //unless the user manually paused
+    if(started) return
+    stream.resume()
+  })
+ 
+  return stream
+}
+
+
+})(require("__browserify_process"))
+},{"stream":20,"__browserify_process":8}],43:[function(require,module,exports){
+
+var EventEmitter = require('events').EventEmitter
+
+exports = module.exports = function (wrapper) {
+
+  if('function' == typeof wrapper)
+    return wrapper
+  
+  return exports[wrapper] || exports.json
+}
+
+exports.json = function (stream) {
+
+  var write = stream.write
+  var soFar = ''
+
+  function parse (line) {
+    var js
+    try {
+      js = JSON.parse(line)
+      //ignore lines of whitespace...
+    } catch (err) { 
+      return stream.emit('error', err)
+      //return console.error('invalid JSON', line)
+    }
+    if(js !== undefined)
+      write.call(stream, js)
+  }
+
+  function onData (data) {
+    var lines = (soFar + data).split('\n')
+    soFar = lines.pop()
+    while(lines.length) {
+      parse(lines.shift())
+    }
+  }
+
+  stream.write = onData
+  
+  var end = stream.end
+
+  stream.end = function (data) {
+    if(data)
+      stream.write(data)
+    //if there is any left over...
+    if(soFar) {
+      parse(soFar)
+    }
+    return end.call(stream)
+  }
+
+  stream.emit = function (event, data) {
+
+    if(event == 'data') {
+      data = JSON.stringify(data) + '\n'
+    }
+    //since all stream events only use one argument, this is okay...
+    EventEmitter.prototype.emit.call(stream, event, data)
+  }
+
+  return stream
+//  return es.pipeline(es.split(), es.parse(), stream, es.stringify())
+}
+
+exports.raw = function (stream) {
+  return stream
+}
+
+
+},{"events":7}],44:[function(require,module,exports){
+// If `Date.now()` is invoked twice quickly, it's possible to get two
+// identical time stamps. To avoid generation duplications, subsequent
+// calls are manually ordered to force uniqueness.
+
+var _last = 0
+var _count = 1
+var adjusted = 0
+var _adjusted = 0
+
+module.exports =
+function timestamp() {
+  /**
+  Returns NOT an accurate representation of the current time.
+  Since js only measures time as ms, if you call `Date.now()`
+  twice quickly, it's possible to get two identical time stamps.
+  This function guarantees unique but maybe inaccurate results
+  on each call.
+  **/
+  //uncomment this wen
+  var time = Date.now()
+  //time = ~~ (time / 1000) 
+  //^^^uncomment when testing...
+
+  /**
+  If time returned is same as in last call, adjust it by
+  adding a number based on the counter. 
+  Counter is incremented so that next call get's adjusted properly.
+  Because floats have restricted precision, 
+  may need to step past some values...
+  **/
+  if (_last === time)  {
+    do {
+      adjusted = time + ((_count++) / (_count + 999))
+    } while (adjusted === _adjusted)
+    _adjusted = adjusted
+  }
+  // If last time was different reset timer back to `1`.
+  else {
+    _count = 1
+    adjusted = time
+  }
+  _adjusted = adjusted
+  _last = time
+  return adjusted
+}
+
+},{}],32:[function(require,module,exports){
 var split = require('browser-split')
 var ClassList = require('class-list')
 
@@ -5200,7 +6791,7 @@ function isArray (arr) {
   return Object.prototype.toString.call(arr) == '[object Array]'
 }
 
-},{"browser-split":33,"class-list":34}],33:[function(require,module,exports){
+},{"browser-split":45,"class-list":46}],45:[function(require,module,exports){
 (function(){/*!
  * Cross-Browser Split 1.1.1
  * Copyright 2007-2012 Steven Levithan <stevenlevithan.com>
@@ -5309,7 +6900,7 @@ module.exports = (function split(undef) {
 })();
 
 })()
-},{}],34:[function(require,module,exports){
+},{}],46:[function(require,module,exports){
 // contains, add, remove, toggle
 
 module.exports = ClassList
@@ -5409,7 +7000,7 @@ function isTruthy(value) {
     return !!value
 }
 
-},{}],26:[function(require,module,exports){
+},{}],34:[function(require,module,exports){
 var traverse = require('traverse');
 var objectKeys = require('./keys');
 var forEach = require('./foreach');
@@ -5483,7 +7074,7 @@ Scrubber.prototype.unscrub = function (msg, f) {
     return args;
 };
 
-},{"./keys":27,"./foreach":28,"traverse":35}],35:[function(require,module,exports){
+},{"./keys":35,"./foreach":36,"traverse":47}],47:[function(require,module,exports){
 var traverse = module.exports = function (obj) {
     return new Traverse(obj);
 };

@@ -3,6 +3,8 @@
     var reconnect = require("reconnect");
     var MuxDemux = require("mux-demux");
     var dnode = require("dnode");
+    var Doc = require("crdt").Doc;
+
     var l = function (err) {
         console.dir({
             error: arguments[0],
@@ -22,14 +24,18 @@
         mdm.on("error", l);
         stream.on("error", l);
 
-        var first = mdm.createStream("first");
-        first.on("data", function (data) {
-            messages.textContent += "FIRST: " + data + "\n";
-        });
-
-        var second = mdm.createStream("second");
-        second.on("data", function (data) {
-            messages.textContent += "SECOND: " + data + "\n";
+        var docStream = mdm.createStream("doc");
+        var doc = new Doc;
+        docStream.pipe(doc.createStream()).pipe(docStream);
+        doc.on("create", function (row) {
+            var number = row.get("number");
+            if (number) {
+                messages.textContent += "DOCUMENT ROW: " + number + "\n";
+            }
+            var text = row.get("text");
+            if (text) {
+                messages.textContent += "TEXT: " + text + "\n";
+            }
         });
 
         var d = dnode();
@@ -38,14 +44,19 @@
                 console.log(s);
             });
 
-            document.getElementById("start").addEventListener("click", function (e) {
+            document.getElementById("row-start").addEventListener("click", function (e) {
                 e.preventDefault();
                 remote.start(function (s) {console.dir(s)});
             });
 
-            document.getElementById("stop").addEventListener("click", function (e) {
+            document.getElementById("row-stop").addEventListener("click", function (e) {
                 e.preventDefault();
                 remote.stop(function (s) {console.dir(s)});
+            });
+
+            document.getElementById("row-add-button").addEventListener("click", function (e) {
+                e.preventDefault();
+                doc.add({text: document.getElementById("row-add").value});
             });
         });
 
