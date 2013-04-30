@@ -1,8 +1,7 @@
 #Shoe Playground
 
 A collection of node.js streams examples with streaming over websockets via
-shoe (sock.js). Each example is on a different branch, the master branch only
-contains the Readme and the starting point for the other branches.
+[shoe](https://github.com/substack/shoe) ([sock.js](https://github.com/so)). Each example is on a different branch, the master branch only contains the Readme and the starting point for the other branches.
 
 ##Running the examples
 
@@ -13,8 +12,7 @@ npm install
 node server
 ```
 
-If you change the client.js, you have to compile it via browserify. There is
-an executable for this task that uses nodemon to watch for changes:
+If you change the client.js, you have to compile it via [browserify](https://github.com/substack/node-browserify). There is an executable for this task that uses nodemon to watch for changes:
 _compile-bzndle.js_
 
 Go to localhost:3000 and enjoy. Some exmples use console.log on the client to
