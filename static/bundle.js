@@ -2,370 +2,26 @@
 (function () {
     "use strict";
     var shoe = require("shoe");
+    var Model = require("scuttlebutt/model");
+
+    var stream = shoe("/socket");
+
+    var numbers = new Model;
+
+    stream.pipe(numbers.createStream()).pipe(stream);
+
+    var messages = document.getElementById("messages");
+
+    numbers.on("update", function (object, timestamp, source) {
+        messages.textContent = "KEY: " + object[0] + "\n" +
+            "VALUE: " + object[1] + "\n" +
+            "TIMESTAMP: " + timestamp + "\n" +
+            "SOURCE: " + source;
+    });
+
 }());
 
-},{"shoe":2}],3:[function(require,module,exports){
-var events = require('events');
-var util = require('util');
-
-function Stream() {
-  events.EventEmitter.call(this);
-}
-util.inherits(Stream, events.EventEmitter);
-module.exports = Stream;
-// Backwards-compat with node 0.4.x
-Stream.Stream = Stream;
-
-Stream.prototype.pipe = function(dest, options) {
-  var source = this;
-
-  function ondata(chunk) {
-    if (dest.writable) {
-      if (false === dest.write(chunk) && source.pause) {
-        source.pause();
-      }
-    }
-  }
-
-  source.on('data', ondata);
-
-  function ondrain() {
-    if (source.readable && source.resume) {
-      source.resume();
-    }
-  }
-
-  dest.on('drain', ondrain);
-
-  // If the 'end' option is not supplied, dest.end() will be called when
-  // source gets the 'end' or 'close' events.  Only dest.end() once, and
-  // only when all sources have ended.
-  if (!dest._isStdio && (!options || options.end !== false)) {
-    dest._pipeCount = dest._pipeCount || 0;
-    dest._pipeCount++;
-
-    source.on('end', onend);
-    source.on('close', onclose);
-  }
-
-  var didOnEnd = false;
-  function onend() {
-    if (didOnEnd) return;
-    didOnEnd = true;
-
-    dest._pipeCount--;
-
-    // remove the listeners
-    cleanup();
-
-    if (dest._pipeCount > 0) {
-      // waiting for other incoming streams to end.
-      return;
-    }
-
-    dest.end();
-  }
-
-
-  function onclose() {
-    if (didOnEnd) return;
-    didOnEnd = true;
-
-    dest._pipeCount--;
-
-    // remove the listeners
-    cleanup();
-
-    if (dest._pipeCount > 0) {
-      // waiting for other incoming streams to end.
-      return;
-    }
-
-    dest.destroy();
-  }
-
-  // don't leave dangling pipes when there are errors.
-  function onerror(er) {
-    cleanup();
-    if (this.listeners('error').length === 0) {
-      throw er; // Unhandled stream error in pipe.
-    }
-  }
-
-  source.on('error', onerror);
-  dest.on('error', onerror);
-
-  // remove all the event listeners that were added.
-  function cleanup() {
-    source.removeListener('data', ondata);
-    dest.removeListener('drain', ondrain);
-
-    source.removeListener('end', onend);
-    source.removeListener('close', onclose);
-
-    source.removeListener('error', onerror);
-    dest.removeListener('error', onerror);
-
-    source.removeListener('end', cleanup);
-    source.removeListener('close', cleanup);
-
-    dest.removeListener('end', cleanup);
-    dest.removeListener('close', cleanup);
-  }
-
-  source.on('end', cleanup);
-  source.on('close', cleanup);
-
-  dest.on('end', cleanup);
-  dest.on('close', cleanup);
-
-  dest.emit('pipe', source);
-
-  // Allow for unix-like usage: A.pipe(B).pipe(C)
-  return dest;
-};
-
-},{"events":4,"util":5}],6:[function(require,module,exports){
-// shim for using process in browser
-
-var process = module.exports = {};
-
-process.nextTick = (function () {
-    var canSetImmediate = typeof window !== 'undefined'
-    && window.setImmediate;
-    var canPost = typeof window !== 'undefined'
-    && window.postMessage && window.addEventListener
-    ;
-
-    if (canSetImmediate) {
-        return function (f) { return window.setImmediate(f) };
-    }
-
-    if (canPost) {
-        var queue = [];
-        window.addEventListener('message', function (ev) {
-            if (ev.source === window && ev.data === 'process-tick') {
-                ev.stopPropagation();
-                if (queue.length > 0) {
-                    var fn = queue.shift();
-                    fn();
-                }
-            }
-        }, true);
-
-        return function nextTick(fn) {
-            queue.push(fn);
-            window.postMessage('process-tick', '*');
-        };
-    }
-
-    return function nextTick(fn) {
-        setTimeout(fn, 0);
-    };
-})();
-
-process.title = 'browser';
-process.browser = true;
-process.env = {};
-process.argv = [];
-
-process.binding = function (name) {
-    throw new Error('process.binding is not supported');
-}
-
-// TODO(shtylman)
-process.cwd = function () { return '/' };
-process.chdir = function (dir) {
-    throw new Error('process.chdir is not supported');
-};
-
-},{}],4:[function(require,module,exports){
-(function(process){if (!process.EventEmitter) process.EventEmitter = function () {};
-
-var EventEmitter = exports.EventEmitter = process.EventEmitter;
-var isArray = typeof Array.isArray === 'function'
-    ? Array.isArray
-    : function (xs) {
-        return Object.prototype.toString.call(xs) === '[object Array]'
-    }
-;
-function indexOf (xs, x) {
-    if (xs.indexOf) return xs.indexOf(x);
-    for (var i = 0; i < xs.length; i++) {
-        if (x === xs[i]) return i;
-    }
-    return -1;
-}
-
-// By default EventEmitters will print a warning if more than
-// 10 listeners are added to it. This is a useful default which
-// helps finding memory leaks.
-//
-// Obviously not all Emitters should be limited to 10. This function allows
-// that to be increased. Set to zero for unlimited.
-var defaultMaxListeners = 10;
-EventEmitter.prototype.setMaxListeners = function(n) {
-  if (!this._events) this._events = {};
-  this._events.maxListeners = n;
-};
-
-
-EventEmitter.prototype.emit = function(type) {
-  // If there is no 'error' event listener then throw.
-  if (type === 'error') {
-    if (!this._events || !this._events.error ||
-        (isArray(this._events.error) && !this._events.error.length))
-    {
-      if (arguments[1] instanceof Error) {
-        throw arguments[1]; // Unhandled 'error' event
-      } else {
-        throw new Error("Uncaught, unspecified 'error' event.");
-      }
-      return false;
-    }
-  }
-
-  if (!this._events) return false;
-  var handler = this._events[type];
-  if (!handler) return false;
-
-  if (typeof handler == 'function') {
-    switch (arguments.length) {
-      // fast cases
-      case 1:
-        handler.call(this);
-        break;
-      case 2:
-        handler.call(this, arguments[1]);
-        break;
-      case 3:
-        handler.call(this, arguments[1], arguments[2]);
-        break;
-      // slower
-      default:
-        var args = Array.prototype.slice.call(arguments, 1);
-        handler.apply(this, args);
-    }
-    return true;
-
-  } else if (isArray(handler)) {
-    var args = Array.prototype.slice.call(arguments, 1);
-
-    var listeners = handler.slice();
-    for (var i = 0, l = listeners.length; i < l; i++) {
-      listeners[i].apply(this, args);
-    }
-    return true;
-
-  } else {
-    return false;
-  }
-};
-
-// EventEmitter is defined in src/node_events.cc
-// EventEmitter.prototype.emit() is also defined there.
-EventEmitter.prototype.addListener = function(type, listener) {
-  if ('function' !== typeof listener) {
-    throw new Error('addListener only takes instances of Function');
-  }
-
-  if (!this._events) this._events = {};
-
-  // To avoid recursion in the case that type == "newListeners"! Before
-  // adding it to the listeners, first emit "newListeners".
-  this.emit('newListener', type, listener);
-
-  if (!this._events[type]) {
-    // Optimize the case of one listener. Don't need the extra array object.
-    this._events[type] = listener;
-  } else if (isArray(this._events[type])) {
-
-    // Check for listener leak
-    if (!this._events[type].warned) {
-      var m;
-      if (this._events.maxListeners !== undefined) {
-        m = this._events.maxListeners;
-      } else {
-        m = defaultMaxListeners;
-      }
-
-      if (m && m > 0 && this._events[type].length > m) {
-        this._events[type].warned = true;
-        console.error('(node) warning: possible EventEmitter memory ' +
-                      'leak detected. %d listeners added. ' +
-                      'Use emitter.setMaxListeners() to increase limit.',
-                      this._events[type].length);
-        console.trace();
-      }
-    }
-
-    // If we've already got an array, just append.
-    this._events[type].push(listener);
-  } else {
-    // Adding the second element, need to change to array.
-    this._events[type] = [this._events[type], listener];
-  }
-
-  return this;
-};
-
-EventEmitter.prototype.on = EventEmitter.prototype.addListener;
-
-EventEmitter.prototype.once = function(type, listener) {
-  var self = this;
-  self.on(type, function g() {
-    self.removeListener(type, g);
-    listener.apply(this, arguments);
-  });
-
-  return this;
-};
-
-EventEmitter.prototype.removeListener = function(type, listener) {
-  if ('function' !== typeof listener) {
-    throw new Error('removeListener only takes instances of Function');
-  }
-
-  // does not use listeners(), so no side effect of creating _events[type]
-  if (!this._events || !this._events[type]) return this;
-
-  var list = this._events[type];
-
-  if (isArray(list)) {
-    var i = indexOf(list, listener);
-    if (i < 0) return this;
-    list.splice(i, 1);
-    if (list.length == 0)
-      delete this._events[type];
-  } else if (this._events[type] === listener) {
-    delete this._events[type];
-  }
-
-  return this;
-};
-
-EventEmitter.prototype.removeAllListeners = function(type) {
-  if (arguments.length === 0) {
-    this._events = {};
-    return this;
-  }
-
-  // does not use listeners(), so no side effect of creating _events[type]
-  if (type && this._events && this._events[type]) this._events[type] = null;
-  return this;
-};
-
-EventEmitter.prototype.listeners = function(type) {
-  if (!this._events) this._events = {};
-  if (!this._events[type]) this._events[type] = [];
-  if (!isArray(this._events[type])) {
-    this._events[type] = [this._events[type]];
-  }
-  return this._events[type];
-};
-
-})(require("__browserify_process"))
-},{"__browserify_process":6}],5:[function(require,module,exports){
+},{"scuttlebutt/model":2,"shoe":3}],4:[function(require,module,exports){
 var events = require('events');
 
 exports.isArray = isArray;
@@ -718,7 +374,648 @@ exports.format = function(f) {
   return str;
 };
 
-},{"events":4}],2:[function(require,module,exports){
+},{"events":5}],6:[function(require,module,exports){
+// shim for using process in browser
+
+var process = module.exports = {};
+
+process.nextTick = (function () {
+    var canSetImmediate = typeof window !== 'undefined'
+    && window.setImmediate;
+    var canPost = typeof window !== 'undefined'
+    && window.postMessage && window.addEventListener
+    ;
+
+    if (canSetImmediate) {
+        return function (f) { return window.setImmediate(f) };
+    }
+
+    if (canPost) {
+        var queue = [];
+        window.addEventListener('message', function (ev) {
+            if (ev.source === window && ev.data === 'process-tick') {
+                ev.stopPropagation();
+                if (queue.length > 0) {
+                    var fn = queue.shift();
+                    fn();
+                }
+            }
+        }, true);
+
+        return function nextTick(fn) {
+            queue.push(fn);
+            window.postMessage('process-tick', '*');
+        };
+    }
+
+    return function nextTick(fn) {
+        setTimeout(fn, 0);
+    };
+})();
+
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+}
+
+// TODO(shtylman)
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+
+},{}],5:[function(require,module,exports){
+(function(process){if (!process.EventEmitter) process.EventEmitter = function () {};
+
+var EventEmitter = exports.EventEmitter = process.EventEmitter;
+var isArray = typeof Array.isArray === 'function'
+    ? Array.isArray
+    : function (xs) {
+        return Object.prototype.toString.call(xs) === '[object Array]'
+    }
+;
+function indexOf (xs, x) {
+    if (xs.indexOf) return xs.indexOf(x);
+    for (var i = 0; i < xs.length; i++) {
+        if (x === xs[i]) return i;
+    }
+    return -1;
+}
+
+// By default EventEmitters will print a warning if more than
+// 10 listeners are added to it. This is a useful default which
+// helps finding memory leaks.
+//
+// Obviously not all Emitters should be limited to 10. This function allows
+// that to be increased. Set to zero for unlimited.
+var defaultMaxListeners = 10;
+EventEmitter.prototype.setMaxListeners = function(n) {
+  if (!this._events) this._events = {};
+  this._events.maxListeners = n;
+};
+
+
+EventEmitter.prototype.emit = function(type) {
+  // If there is no 'error' event listener then throw.
+  if (type === 'error') {
+    if (!this._events || !this._events.error ||
+        (isArray(this._events.error) && !this._events.error.length))
+    {
+      if (arguments[1] instanceof Error) {
+        throw arguments[1]; // Unhandled 'error' event
+      } else {
+        throw new Error("Uncaught, unspecified 'error' event.");
+      }
+      return false;
+    }
+  }
+
+  if (!this._events) return false;
+  var handler = this._events[type];
+  if (!handler) return false;
+
+  if (typeof handler == 'function') {
+    switch (arguments.length) {
+      // fast cases
+      case 1:
+        handler.call(this);
+        break;
+      case 2:
+        handler.call(this, arguments[1]);
+        break;
+      case 3:
+        handler.call(this, arguments[1], arguments[2]);
+        break;
+      // slower
+      default:
+        var args = Array.prototype.slice.call(arguments, 1);
+        handler.apply(this, args);
+    }
+    return true;
+
+  } else if (isArray(handler)) {
+    var args = Array.prototype.slice.call(arguments, 1);
+
+    var listeners = handler.slice();
+    for (var i = 0, l = listeners.length; i < l; i++) {
+      listeners[i].apply(this, args);
+    }
+    return true;
+
+  } else {
+    return false;
+  }
+};
+
+// EventEmitter is defined in src/node_events.cc
+// EventEmitter.prototype.emit() is also defined there.
+EventEmitter.prototype.addListener = function(type, listener) {
+  if ('function' !== typeof listener) {
+    throw new Error('addListener only takes instances of Function');
+  }
+
+  if (!this._events) this._events = {};
+
+  // To avoid recursion in the case that type == "newListeners"! Before
+  // adding it to the listeners, first emit "newListeners".
+  this.emit('newListener', type, listener);
+
+  if (!this._events[type]) {
+    // Optimize the case of one listener. Don't need the extra array object.
+    this._events[type] = listener;
+  } else if (isArray(this._events[type])) {
+
+    // Check for listener leak
+    if (!this._events[type].warned) {
+      var m;
+      if (this._events.maxListeners !== undefined) {
+        m = this._events.maxListeners;
+      } else {
+        m = defaultMaxListeners;
+      }
+
+      if (m && m > 0 && this._events[type].length > m) {
+        this._events[type].warned = true;
+        console.error('(node) warning: possible EventEmitter memory ' +
+                      'leak detected. %d listeners added. ' +
+                      'Use emitter.setMaxListeners() to increase limit.',
+                      this._events[type].length);
+        console.trace();
+      }
+    }
+
+    // If we've already got an array, just append.
+    this._events[type].push(listener);
+  } else {
+    // Adding the second element, need to change to array.
+    this._events[type] = [this._events[type], listener];
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.on = EventEmitter.prototype.addListener;
+
+EventEmitter.prototype.once = function(type, listener) {
+  var self = this;
+  self.on(type, function g() {
+    self.removeListener(type, g);
+    listener.apply(this, arguments);
+  });
+
+  return this;
+};
+
+EventEmitter.prototype.removeListener = function(type, listener) {
+  if ('function' !== typeof listener) {
+    throw new Error('removeListener only takes instances of Function');
+  }
+
+  // does not use listeners(), so no side effect of creating _events[type]
+  if (!this._events || !this._events[type]) return this;
+
+  var list = this._events[type];
+
+  if (isArray(list)) {
+    var i = indexOf(list, listener);
+    if (i < 0) return this;
+    list.splice(i, 1);
+    if (list.length == 0)
+      delete this._events[type];
+  } else if (this._events[type] === listener) {
+    delete this._events[type];
+  }
+
+  return this;
+};
+
+EventEmitter.prototype.removeAllListeners = function(type) {
+  if (arguments.length === 0) {
+    this._events = {};
+    return this;
+  }
+
+  // does not use listeners(), so no side effect of creating _events[type]
+  if (type && this._events && this._events[type]) this._events[type] = null;
+  return this;
+};
+
+EventEmitter.prototype.listeners = function(type) {
+  if (!this._events) this._events = {};
+  if (!this._events[type]) this._events[type] = [];
+  if (!isArray(this._events[type])) {
+    this._events[type] = [this._events[type]];
+  }
+  return this._events[type];
+};
+
+})(require("__browserify_process"))
+},{"__browserify_process":6}],7:[function(require,module,exports){
+var events = require('events');
+var util = require('util');
+
+function Stream() {
+  events.EventEmitter.call(this);
+}
+util.inherits(Stream, events.EventEmitter);
+module.exports = Stream;
+// Backwards-compat with node 0.4.x
+Stream.Stream = Stream;
+
+Stream.prototype.pipe = function(dest, options) {
+  var source = this;
+
+  function ondata(chunk) {
+    if (dest.writable) {
+      if (false === dest.write(chunk) && source.pause) {
+        source.pause();
+      }
+    }
+  }
+
+  source.on('data', ondata);
+
+  function ondrain() {
+    if (source.readable && source.resume) {
+      source.resume();
+    }
+  }
+
+  dest.on('drain', ondrain);
+
+  // If the 'end' option is not supplied, dest.end() will be called when
+  // source gets the 'end' or 'close' events.  Only dest.end() once, and
+  // only when all sources have ended.
+  if (!dest._isStdio && (!options || options.end !== false)) {
+    dest._pipeCount = dest._pipeCount || 0;
+    dest._pipeCount++;
+
+    source.on('end', onend);
+    source.on('close', onclose);
+  }
+
+  var didOnEnd = false;
+  function onend() {
+    if (didOnEnd) return;
+    didOnEnd = true;
+
+    dest._pipeCount--;
+
+    // remove the listeners
+    cleanup();
+
+    if (dest._pipeCount > 0) {
+      // waiting for other incoming streams to end.
+      return;
+    }
+
+    dest.end();
+  }
+
+
+  function onclose() {
+    if (didOnEnd) return;
+    didOnEnd = true;
+
+    dest._pipeCount--;
+
+    // remove the listeners
+    cleanup();
+
+    if (dest._pipeCount > 0) {
+      // waiting for other incoming streams to end.
+      return;
+    }
+
+    dest.destroy();
+  }
+
+  // don't leave dangling pipes when there are errors.
+  function onerror(er) {
+    cleanup();
+    if (this.listeners('error').length === 0) {
+      throw er; // Unhandled stream error in pipe.
+    }
+  }
+
+  source.on('error', onerror);
+  dest.on('error', onerror);
+
+  // remove all the event listeners that were added.
+  function cleanup() {
+    source.removeListener('data', ondata);
+    dest.removeListener('drain', ondrain);
+
+    source.removeListener('end', onend);
+    source.removeListener('close', onclose);
+
+    source.removeListener('error', onerror);
+    dest.removeListener('error', onerror);
+
+    source.removeListener('end', cleanup);
+    source.removeListener('close', cleanup);
+
+    dest.removeListener('end', cleanup);
+    dest.removeListener('close', cleanup);
+  }
+
+  source.on('end', cleanup);
+  source.on('close', cleanup);
+
+  dest.on('end', cleanup);
+  dest.on('close', cleanup);
+
+  dest.emit('pipe', source);
+
+  // Allow for unix-like usage: A.pipe(B).pipe(C)
+  return dest;
+};
+
+},{"events":5,"util":4}],8:[function(require,module,exports){
+exports.createId = 
+function () {
+  return [1,1,1].map(function () {
+    return Math.random().toString(16).substring(2).toUpperCase()
+  }).join('')
+}
+
+exports.filter = function (update, sources) {
+  var ts = update[1]
+  var source = update[2]
+  return (!sources || !sources[source] || sources[source] < ts)
+}
+
+exports.protoIsIllegal = function (s) {
+  s.emit('invalid', new Error('"__proto__" is illegal property name'))
+  return null
+}
+
+function invalidUpdate(t) {
+  t.emit('invalid', new Error('invalid update'))
+}
+
+exports.validUpdate = function (t, update) {
+  if(!Array.isArray(update)) return invalidUpdate(t)
+  if('string' !== typeof update[1] || 'number' !== typeof update[2])
+    return invalidUpdate(t)
+}
+
+exports.sort = function (hist) {
+  return hist.sort(function (a, b) {
+    //sort by timestamps, then ids.
+    //there should never be a pair with equal timestamps
+    //and ids.
+    return a[1] - b[1] || (a[2] > b[2] ? 1 : -1)
+  })
+}
+
+},{}],2:[function(require,module,exports){
+var Scuttlebutt = require('./index')
+var inherits = require('util').inherits
+var each = require('iterate').each
+var u = require('./util')
+
+module.exports = Model
+
+inherits(Model, Scuttlebutt)
+
+function Model (opts) {
+  if(!(this instanceof Model)) return new Model(opts)
+  Scuttlebutt.call(this, opts)
+  this.store = {}
+}
+
+var m = Model.prototype
+
+m.set = function (k, v) {
+  if(k==='__proto__') return u.protoIsIllegal(this)
+  this.localUpdate([k, v])
+  return this
+}
+
+
+m.get = function (k) {
+  if(k==='__proto__') return u.protoIsIllegal(this)
+  if(this.store[k])
+    return this.store[k][0][1]
+}
+
+m.keys = function () {
+  var a = []
+  for (var k in this.store)
+    a.push(k)
+  return a
+}
+
+m.forEach =
+m.each = function (iter) {
+  for (var k in this.store)
+    iter(this.store[k][0][1], k, this.store)
+  return this
+}
+
+//return this history since sources.
+//sources is a hash of { ID: TIMESTAMP }
+
+m.applyUpdate = function (update) {
+  var key = update[0][0]
+  if('__proto__' === key) return u.protoIsIllegal(this)
+  //ignore if we already have a more recent value
+
+  if('undefined' !== typeof this.store[key]
+    && this.store[key][1] > update[1])
+    return this.emit('_remove', update)
+
+  if(this.store[key]) this.emit('_remove', this.store[key])
+
+  this.store[key] = update
+
+  this.emit.apply(this, ['update'].concat(update))
+  this.emit('change', key, update[0][1])
+  this.emit('change:'+key, update[0][1])
+
+  return true
+}
+
+m.history = function (sources) {
+  var self = this
+  var h = []
+  each(this.store, function (e) {
+    if(u.filter(e, sources))
+      h.push(e)
+  })
+  return u.sort(h)
+}
+
+m.toJSON = function () {
+  var o = {}, notNull = false
+  for (var k in this.store) {
+    var v = this.get(k)
+    if(v != null)
+      o[k] = this.get(k)
+  }
+  return o
+}
+
+},{"util":4,"./index":9,"./util":8,"iterate":10}],10:[function(require,module,exports){
+
+//
+// adds all the fields from obj2 onto obj1
+//
+
+var each = exports.each = function (obj,iterator){
+ var keys = Object.keys(obj)
+ keys.forEach(function (key){
+  iterator(obj[key],key,obj) 
+ })
+}
+
+var RX = /sadf/.constructor
+function rx (iterator ){
+  return iterator instanceof RX ? function (str) { 
+      var m = iterator.exec(str)
+      return m && (m[1] ? m[1] : m[0]) 
+    } : iterator
+}
+
+var times = exports.times = function () {
+  var args = [].slice.call(arguments)
+    , iterator = rx(args.pop())
+    , m = args.pop()
+    , i = args.shift()
+    , j = args.shift()
+    , diff, dir
+    , a = []
+    
+    i = 'number' === typeof i ? i : 1
+    diff = j ? j - i : 1
+    dir = i < m
+    if(m == i)
+      throw new Error('steps cannot be the same: '+m+', '+i)
+  for (; dir ? i <= m : m <= i; i += diff)
+    a.push(iterator(i))
+  return a
+}
+
+var map = exports.map = function (obj, iterator){
+  iterator = rx(iterator)
+  if(Array.isArray(obj))
+    return obj.map(iterator)
+  if('number' === typeof obj)
+    return times.apply(null, [].slice.call(arguments))  
+  //return if null ?  
+  var keys = Object.keys(obj)
+    , r = {}
+  keys.forEach(function (key){
+    r[key] = iterator(obj[key],key,obj) 
+  })
+  return r
+}
+
+var findReturn = exports.findReturn = function (obj, iterator) {
+  iterator = rx(iterator)
+  if(obj == null)
+    return
+  var keys = Object.keys(obj)
+    , l = keys.length
+  for (var i = 0; i < l; i ++) {
+    var key = keys[i]
+      , value = obj[key]
+    var r = iterator(value, key)
+    if(r) return r
+  }
+}
+
+var find = exports.find = function (obj, iterator) { 
+  iterator = rx(iterator)
+  return findReturn (obj, function (v, k) {
+    var r = iterator(v, k)
+    if(r) return v
+  })
+}
+
+var findKey = exports.findKey = function (obj, iterator) { 
+  iterator = rx(iterator)
+  return findReturn (obj, function (v, k) {
+    var r = iterator(v, k)
+    if(r) return k
+  })
+}
+
+var filter = exports.filter = function (obj, iterator){
+  iterator = rx (iterator)
+
+  if(Array.isArray(obj))
+    return obj.filter(iterator)
+  
+  var keys = Object.keys(obj)
+    , r = {}
+  keys.forEach(function (key){
+    var v
+    if(iterator(v = obj[key],key,obj))
+      r[key] = v
+  })
+  return r 
+}
+
+var mapKeys = exports.mapKeys = function (ary, iterator){
+  var r = {}
+  iterator = rx(iterator)
+  each(ary, function (v,k){
+    r[v] = iterator(v,k)
+  })
+  return r
+}
+
+
+var mapToArray = exports.mapToArray = function (ary, iterator){
+  var r = []
+  iterator = rx(iterator)
+  each(ary, function (v,k){
+    r.push(iterator(v,k))
+  })
+  return r
+}
+
+var path = exports.path = function (object, path) {
+
+  for (var i in path) {
+    if(object == null) return undefined
+    var key = path[i]
+    object = object[key]
+  }
+  return object
+}
+
+/*
+NOTE: naive implementation. 
+`match` must not contain circular references.
+*/
+
+var setPath = exports.setPath = function (object, path, value) {
+
+  for (var i in path) {
+    var key = path[i]
+    if(object[key] == null) object[key] = ( 
+      i + 1 == path.length ? value : {}
+    )
+    object = object[key]
+  }
+}
+
+var join = exports.join = function (A, B, it) {
+  each(A, function (a, ak) {
+    each(B, function (b, bk) {
+      it(a, b, ak, bk)
+    })
+  })
+}
+
+},{}],3:[function(require,module,exports){
 var Stream = require('stream');
 var sockjs = require('sockjs-client');
 
@@ -789,7 +1086,7 @@ module.exports = function (uri, cb) {
     return stream;
 };
 
-},{"stream":3,"sockjs-client":7}],7:[function(require,module,exports){
+},{"stream":7,"sockjs-client":11}],11:[function(require,module,exports){
 (function(){/* SockJS client, version 0.3.1.7.ga67f.dirty, http://sockjs.org, MIT License
 
 Copyright (c) 2011-2012 VMware, Inc.
@@ -3115,5 +3412,565 @@ if (typeof module === 'object' && module && module.exports) {
 
 
 })()
+},{}],9:[function(require,module,exports){
+(function(process){var EventEmitter = require('events').EventEmitter
+var i = require('iterate')
+var duplex = require('duplex')
+var inherits = require('util').inherits
+var serializer = require('stream-serializer')
+var u = require('./util')
+var timestamp = require('monotonic-timestamp')
+
+exports = 
+module.exports = Scuttlebutt
+
+exports.createID = u.createID
+exports.updateIsRecent = u.filter
+exports.filter = u.filter
+exports.timestamp = timestamp
+
+function dutyOfSubclass() {
+  throw new Error('method must be implemented by subclass')
+}
+
+function validate (data) {
+  if(!(Array.isArray(data) 
+    && 'string' === typeof data[2]
+    && '__proto__'     !== data[2] //THIS WOULD BREAK STUFF
+    && 'number' === typeof data[1]
+  )) return false
+
+  return true
+}
+
+var emit = EventEmitter.prototype.emit
+
+inherits (Scuttlebutt, EventEmitter)
+
+function Scuttlebutt (opts) {
+
+  if(!(this instanceof Scuttlebutt)) return new Scuttlebutt(opts)
+  var id = 'string' === typeof opts ? opts : opts && opts.id
+  this.sources = {}
+  this.setMaxListeners(Number.MAX_VALUE)
+  //count how many other instances we are replicating to.
+  this._streams = 0
+  if(opts && opts.sign && opts.verify) {
+    this.setId(opts.id || opts.createId())
+    this._sign   = opts.sign
+    this._verify = opts.verify
+  } else {
+    this.setId(id || u.createId())
+  }
+}
+
+var sb = Scuttlebutt.prototype
+
+var emit = EventEmitter.prototype.emit
+
+sb.applyUpdate = dutyOfSubclass
+sb.history      = dutyOfSubclass
+
+sb.localUpdate = function (trx) {
+  this._update([trx, timestamp(), this.id])
+  return this
+}
+
+sb._update = function (update) {
+  //validated when it comes into the stream
+  var ts = update[1]
+  var source = update[2]
+  //if this message is old for it's source,
+  //ignore it. it's out of order.
+  //each node must emit it's changes in order!
+  
+  var latest = this.sources[source]
+  if(latest && latest >= ts)
+    return emit.call(this, 'old_data', update), false
+
+  this.sources[source] = ts
+
+  var self = this
+  function didVerification (err, verified) {
+
+    // I'm not sure how what should happen if a async verification
+    // errors. if it's an key not found - that is a verification fail,
+    // not a error. if it's genunie error, really you should queue and 
+    // try again? or replay the message later
+    // -- this should be done my the security plugin though, not scuttlebutt.
+
+    if(err)
+      return emit.call(self, 'error', err)
+
+    if(!verified)
+      return emit.call(self, 'unverified_data', update)
+
+    // check if this message is older than
+    // the value we already have.
+    // do nothing if so
+    // emit an 'old_data' event because i'll want to track how many
+    // unnecessary messages are sent.
+
+    if(self.applyUpdate(update))
+      emit.call(self, '_update', update) //write to stream.
+  }
+
+  if(source !== this.id) {
+    if(this._verify)
+      this._verify(update, didVerification)
+    else
+      didVerification(null, true)
+  } else {
+    if(this._sign) {
+      //could make this async easily enough.
+      update[3] = this._sign(update)
+    }
+    didVerification(null, true)
+  }
+
+  return true
+}
+
+sb.createStream = function (opts) {
+  var self = this
+  //the sources for the remote end.
+  var sources = {}, other
+  var syncSent = false, syncRecv = false
+
+  this._streams ++
+
+  opts = opts || {}
+  var d = duplex()
+  d.name = opts.name
+  var outer = serializer(opts && opts.wrapper)(d)
+  outer.inner = d
+
+  d.writable = opts.writable !== false
+  d.readable = opts.readable !== false
+
+  syncRecv   = !d.writable
+  syncSent   = !d.readable
+
+  var tail = opts.tail !== false //default to tail=true
+
+  function start (data) {
+    //when the digest is recieved from the other end,
+    //send the history.
+    //merge with the current list of sources.
+    sources = data.clock
+    i.each(self.history(sources), function (data) {d._data(data)})
+    
+    outer.emit('header', data)
+    d._data('SYNC')
+    //when we have sent all history
+    outer.emit('syncSent')
+    syncSent = true
+    //when we have recieved all histoyr
+    //emit 'synced' when this stream has synced.
+    if(syncRecv) outer.emit('sync'), outer.emit('synced')
+    if(!tail) d._end()
+  }
+
+  d
+    .on('_data', function (data) {
+      //if it's an array, it's an update.
+      if(Array.isArray(data)) {
+        if(validate(data))
+          return self._update(data)
+      }
+      //if it's an object, it's a scuttlebut digest.
+      else if('object' === typeof data && data)
+        start(data)
+      else if('string' === typeof data && data == 'SYNC') {
+        syncRecv = true
+        outer.emit('syncRecieved')
+        if(syncSent) outer.emit('sync'), outer.emit('synced')
+      }
+    }).on('_end', function () {
+      d._end()
+    })
+    .on('close', function () {
+      self.removeListener('_update', onUpdate)
+      //emit the number of streams that are remaining...
+      //this will be used for memory management...
+      self._streams --
+      emit.call(self, 'unstream', self._streams)
+    })
+
+  if(opts && opts.tail === false) {
+    outer.on('sync', function () {
+      process.nextTick(function () {
+        d._end()
+      })
+    })
+  }
+  function onUpdate (update) { //value, source, ts
+    if(!validate(update) || !u.filter(update, sources))
+      return
+
+    d._data(update)
+
+    //really, this should happen before emitting.
+    var ts = update[1]
+    var source = update[2]
+    sources[source] = ts
+  }
+
+  var outgoing = { id : self.id, clock : self.sources }
+
+  if (opts && opts.meta) outgoing.meta = opts.meta
+
+  if(d.readable) {
+    d._data(outgoing)
+    if(!d.writable)
+      start({clock:{}})
+    if(tail)
+      self.on('_update', onUpdate)
+  }
+
+  self.once('dispose', function () {
+    d.end()
+  })
+
+  return outer
+}
+
+sb.createWriteStream = function (opts) {
+  opts = opts || {}
+  opts.writable = true; opts.readable = false
+  return this.createStream(opts)
+}
+
+sb.createReadStream = function (opts) {
+  opts = opts || {}
+  opts.writable = false; opts.readable = true
+  return this.createStream(opts)
+}
+
+sb.dispose = function () {
+  emit.call(this, 'dispose')
+}
+
+sb.setId = function (id) {
+  if('__proto__' === id) throw new Error('__proto__ is invalid id')
+  if(id == null) throw new Error('null is not invalid id')
+  this.id = id
+  return this
+}
+
+function streamDone(stream, listener) {
+
+  function remove () {
+    stream.removeListener('end',   onDone)
+    stream.removeListener('error', onDone)
+    stream.removeListener('close',   onDone)
+  }
+  function onDone (arg) {
+    remove()
+    listener.call(this, arg)
+  }
+
+  //this makes emitter.removeListener(event, listener) still work
+  onDone.listener = listener
+
+  stream.on('end',   onDone)
+  stream.on('error', onDone)
+  stream.on('close', onDone)
+}
+
+//create another instance of this scuttlebutt,
+//that is in sync and attached to this instance.
+sb.clone = function () {
+  var A = this
+  var B = new (A.constructor)
+  B.setId(A.id) //same id. think this will work...
+
+  A._clones = (A._clones || 0) + 1
+
+  var a = A.createStream({wrapper: 'raw'})
+  var b = B.createStream({wrapper: 'raw'})
+
+  //all updates must be sync, so make sure pause never happens.
+  a.pause = b.pause = function noop(){}
+
+  streamDone(b, function () {
+    A._clones--
+    emit.call(A, 'unclone', A._clones)
+  })
+
+  a.pipe(b).pipe(a)
+  //resume both streams, so that the new instance is brought up to date immediately.
+  a.resume()
+  b.resume()
+
+  return B
+}
+
+
+})(require("__browserify_process"))
+},{"events":5,"util":4,"./util":8,"iterate":10,"stream-serializer":12,"duplex":13,"monotonic-timestamp":14,"__browserify_process":6}],12:[function(require,module,exports){
+
+var EventEmitter = require('events').EventEmitter
+
+exports = module.exports = function (wrapper) {
+
+  if('function' == typeof wrapper)
+    return wrapper
+  
+  return exports[wrapper] || exports.json
+}
+
+exports.json = function (stream) {
+
+  var write = stream.write
+  var soFar = ''
+
+  function parse (line) {
+    var js
+    try {
+      js = JSON.parse(line)
+      //ignore lines of whitespace...
+    } catch (err) { 
+      return stream.emit('error', err)
+      //return console.error('invalid JSON', line)
+    }
+    if(js !== undefined)
+      write.call(stream, js)
+  }
+
+  function onData (data) {
+    var lines = (soFar + data).split('\n')
+    soFar = lines.pop()
+    while(lines.length) {
+      parse(lines.shift())
+    }
+  }
+
+  stream.write = onData
+  
+  var end = stream.end
+
+  stream.end = function (data) {
+    if(data)
+      stream.write(data)
+    //if there is any left over...
+    if(soFar) {
+      parse(soFar)
+    }
+    return end.call(stream)
+  }
+
+  stream.emit = function (event, data) {
+
+    if(event == 'data') {
+      data = JSON.stringify(data) + '\n'
+    }
+    //since all stream events only use one argument, this is okay...
+    EventEmitter.prototype.emit.call(stream, event, data)
+  }
+
+  return stream
+//  return es.pipeline(es.split(), es.parse(), stream, es.stringify())
+}
+
+exports.raw = function (stream) {
+  return stream
+}
+
+
+},{"events":5}],13:[function(require,module,exports){
+(function(process){var Stream = require('stream')
+
+module.exports = function (write, end) {
+  var stream = new Stream() 
+  var buffer = [], ended = false, destroyed = false, emitEnd
+  stream.writable = stream.readable = true
+  stream.paused = false
+  stream._paused = false
+  stream.buffer = buffer
+  
+  stream
+    .on('pause', function () {
+      stream._paused = true
+    })
+    .on('drain', function () {
+      stream._paused = false
+    })
+   
+  function destroySoon () {
+    process.nextTick(stream.destroy.bind(stream))
+  }
+
+  if(write)
+    stream.on('_data', write)
+  if(end)
+    stream.on('_end', end)
+
+  //destroy the stream once both ends are over
+  //but do it in nextTick, so that other listeners
+  //on end have time to respond
+  stream.once('end', function () { 
+    stream.readable = false
+    if(!stream.writable) {
+      process.nextTick(function () {
+        stream.destroy()
+      })
+    }
+  })
+
+  stream.once('_end', function () { 
+    stream.writable = false
+    if(!stream.readable)
+      stream.destroy()
+  })
+
+  // this is the default write method,
+  // if you overide it, you are resposible
+  // for pause state.
+
+  
+  stream._data = function (data) {
+    if(!stream.paused && !buffer.length)
+      stream.emit('data', data)
+    else 
+      buffer.push(data)
+    return !(stream.paused || buffer.length)
+  }
+
+  stream._end = function (data) { 
+    if(data) stream._data(data)
+    if(emitEnd) return
+    emitEnd = true
+    //destroy is handled above.
+    stream.drain()
+  }
+
+  stream.write = function (data) {
+    stream.emit('_data', data)
+    return !stream._paused
+  }
+
+  stream.end = function () {
+    stream.writable = false
+    if(stream.ended) return
+    stream.ended = true
+    stream.emit('_end')
+  }
+
+  stream.drain = function () {
+    if(!buffer.length && !emitEnd) return
+    //if the stream is paused after just before emitEnd()
+    //end should be buffered.
+    while(!stream.paused) {
+      if(buffer.length) {
+        stream.emit('data', buffer.shift())
+        if(buffer.length == 0) {
+          stream.emit('_drain')
+        }
+      }
+      else if(emitEnd && stream.readable) {
+        stream.readable = false
+        stream.emit('end')
+        return
+      } else {
+        //if the buffer has emptied. emit drain.
+        return true
+      }
+    }
+  }
+  var started = false
+  stream.resume = function () {
+    //this is where I need pauseRead, and pauseWrite.
+    //here the reading side is unpaused,
+    //but the writing side may still be paused.
+    //the whole buffer might not empity at once.
+    //it might pause again.
+    //the stream should never emit data inbetween pause()...resume()
+    //and write should return !buffer.length
+    started = true
+    stream.paused = false
+    stream.drain() //will emit drain if buffer empties.
+    return stream
+  }
+
+  stream.destroy = function () {
+    if(destroyed) return
+    destroyed = ended = true     
+    buffer.length = 0
+    stream.emit('close')
+  }
+  var pauseCalled = false
+  stream.pause = function () {
+    started = true
+    stream.paused = true
+    stream.emit('_pause')
+    return stream
+  }
+  stream._pause = function () {
+    if(!stream._paused) {
+      stream._paused = true
+      stream.emit('pause')
+    }
+    return this
+  }
+  stream.paused = true
+  process.nextTick(function () {
+    //unless the user manually paused
+    if(started) return
+    stream.resume()
+  })
+ 
+  return stream
+}
+
+
+})(require("__browserify_process"))
+},{"stream":7,"__browserify_process":6}],14:[function(require,module,exports){
+// If `Date.now()` is invoked twice quickly, it's possible to get two
+// identical time stamps. To avoid generation duplications, subsequent
+// calls are manually ordered to force uniqueness.
+
+var _last = 0
+var _count = 1
+var adjusted = 0
+var _adjusted = 0
+
+module.exports =
+function timestamp() {
+  /**
+  Returns NOT an accurate representation of the current time.
+  Since js only measures time as ms, if you call `Date.now()`
+  twice quickly, it's possible to get two identical time stamps.
+  This function guarantees unique but maybe inaccurate results
+  on each call.
+  **/
+  //uncomment this wen
+  var time = Date.now()
+  //time = ~~ (time / 1000) 
+  //^^^uncomment when testing...
+
+  /**
+  If time returned is same as in last call, adjust it by
+  adding a number based on the counter. 
+  Counter is incremented so that next call get's adjusted properly.
+  Because floats have restricted precision, 
+  may need to step past some values...
+  **/
+  if (_last === time)  {
+    do {
+      adjusted = time + ((_count++) / (_count + 999))
+    } while (adjusted === _adjusted)
+    _adjusted = adjusted
+  }
+  // If last time was different reset timer back to `1`.
+  else {
+    _count = 1
+    adjusted = time
+  }
+  _adjusted = adjusted
+  _last = time
+  return adjusted
+}
+
 },{}]},{},[1])
 ;
