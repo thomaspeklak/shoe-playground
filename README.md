@@ -27,15 +27,15 @@ print data, so it's best to fire up your dev tools.
 This is the most basic exmple that creates a stream and writes data to it. The
 client receives the data and displays it.
 
-###Simple MuxDemux
+###Simple [MuxDemux](https://github.com/dominictarr/mux-demux)
 
 Two channels that send data to the client.
 
-###Dnode
+###[Dnode](https://github.com/substack/dnode)
 
 Send commands to a dnode server.
 
-###MuxDemux Dnode
+###[MuxDemux](https://github.com/dominictarr/mux-demux) [Dnode](https://github.com/substack/dnode)
 
 Send commands via dnode to start and stop streams. This example uses two data
 streams and one rpc stream to fullfill the task.
@@ -44,10 +44,10 @@ streams and one rpc stream to fullfill the task.
 
 A simple scuttlebutt example, where the server sets a key and the client reacts on changes. This example can be opened in multiple browsers that will run in sync.
 
-###MuxDemux Crdt Dnode
+###[MuxDemux](https://github.com/dominictarr/mux-demux) [Crdt](https://github.com/dominictarr/crdt) [Dnode](https://github.com/substack/dnode)
 
 - Use Crdt to share a document between server and client. 
 - Start and stop a process that adds data to the document. 
 - Add objects to the document from the client and seperate them in a crdt-Set. 
 - Use a crdt-Sequence to display the 5 largest random numbers from the server.
-- Use reconnect to connect to the server after a connection failure
+- Use [reconnect](https://github.com/dominictarr/reconnect) to connect to the server after a connection failure
