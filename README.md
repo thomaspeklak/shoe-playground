@@ -40,6 +40,10 @@ Send commands to a dnode server.
 Send commands via dnode to start and stop streams. This example uses two data
 streams and one rpc stream to fullfill the task.
 
+###[Scuttlebutt](https://github.com/dominictarr/scuttlebutt)
+
+A simple scuttlebutt example, where the server sets a key and the client reacts on changes. This example can be opened in multiple browsers that will run in sync.
+
 ###MuxDemux Crdt Dnode
 
 - Use Crdt to share a document between server and client. 
