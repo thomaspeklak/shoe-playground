@@ -2,9 +2,28 @@
 (function () {
     "use strict";
     var shoe = require("shoe");
+    var RemoteEventEmitter = require("remote-events");
+
+    var stream = shoe("/socket");
+    var ree = new RemoteEventEmitter();
+
+    ree.on("pong", function () {
+        console.log("pong");
+        setTimeout(function () {
+            ree.emit("ping");
+        }, Math.random() * 1000);
+    });
+
+    ree.on("ping", function () {
+        console.log("ping");
+    });
+
+    ree.emit("ping");
+
+    stream.pipe(ree.getStream()).pipe(stream);
 }());
 
-},{"shoe":2}],3:[function(require,module,exports){
+},{"shoe":2,"remote-events":3}],4:[function(require,module,exports){
 var events = require('events');
 var util = require('util');
 
@@ -125,7 +144,7 @@ Stream.prototype.pipe = function(dest, options) {
   return dest;
 };
 
-},{"events":4,"util":5}],6:[function(require,module,exports){
+},{"events":5,"util":6}],7:[function(require,module,exports){
 // shim for using process in browser
 
 var process = module.exports = {};
@@ -179,7 +198,7 @@ process.chdir = function (dir) {
     throw new Error('process.chdir is not supported');
 };
 
-},{}],4:[function(require,module,exports){
+},{}],5:[function(require,module,exports){
 (function(process){if (!process.EventEmitter) process.EventEmitter = function () {};
 
 var EventEmitter = exports.EventEmitter = process.EventEmitter;
@@ -365,7 +384,7 @@ EventEmitter.prototype.listeners = function(type) {
 };
 
 })(require("__browserify_process"))
-},{"__browserify_process":6}],5:[function(require,module,exports){
+},{"__browserify_process":7}],6:[function(require,module,exports){
 var events = require('events');
 
 exports.isArray = isArray;
@@ -718,7 +737,7 @@ exports.format = function(f) {
   return str;
 };
 
-},{"events":4}],2:[function(require,module,exports){
+},{"events":5}],2:[function(require,module,exports){
 var Stream = require('stream');
 var sockjs = require('sockjs-client');
 
@@ -789,7 +808,91 @@ module.exports = function (uri, cb) {
     return stream;
 };
 
-},{"stream":3,"sockjs-client":7}],7:[function(require,module,exports){
+},{"stream":4,"sockjs-client":8}],3:[function(require,module,exports){
+(function(process){var EventEmitter = require('events').EventEmitter
+var through = require('through')
+var serializer = require('stream-serializer')
+
+module.exports = RemoteEventEmitter
+
+function RemoteEventEmitter (opts) {
+  EventEmitter.call(this)
+  this.buffer = []
+  //XXX RemoteEventEmitters start off disconnected!
+  //THIS IS MORE REALISTIC
+  //REMEMBER to call connect() !
+  this.connected = false
+  var self = this
+  this._opts = opts || {}
+  this.on('connect', this.flush.bind(this))
+}
+
+var ree = RemoteEventEmitter.prototype = new EventEmitter ()
+
+ree.flush = function () {
+  while(this.buffer.length && this.connected)
+    this.emit.apply(this, this.buffer.shift())
+}
+
+ree.getStream = function (raw) {
+//raw = true
+  raw = false
+  if (this.stream && !this._stream.ended)
+    return this.stream
+  var self = this
+  this._stream = through(function (data) {
+   self.localEmit.apply(self, data)
+  }, function () {
+    this.emit('end')
+    self.disconnect()
+  })
+
+  this.stream = raw ? this._stream
+    : serializer(this._opts.wrap)(this._stream)
+
+  var pipe = this.stream.pipe
+  this.stream.pipe = function (other, opts) {
+    var r = pipe.call(this, other, opts)
+    process.nextTick(function () {
+      self.connected = true
+      self.localEmit('connect')
+    })
+    return r
+  }
+  return this.stream
+}
+
+ree.disconnect = function () {
+  if(!this.connected) return
+  this.connected = false
+  if(this._stream && this._stream.writable && !this._stream.ended)
+  this._stream.emit('end')
+  this._stream = null
+  this.stream.destroy()
+  this.stream = null
+  this.localEmit('disconnect')
+}
+
+ree.emit = function () {
+  var args = [].slice.call(arguments)
+  if(this.connected)
+    return this._stream.emit('data', args)
+  else
+    this.buffer.push(args)
+}
+
+/*
+  sometimes you need to access this, so I'm not using
+  _emit ... that means this is a part of the API.
+
+*/
+ree.localEmit = function () {
+  var args = [].slice.call(arguments)
+  return EventEmitter.prototype.emit.apply(this, args)
+}
+
+})(require("__browserify_process"))
+},{"events":5,"through":9,"stream-serializer":10,"__browserify_process":7}],8:[function(require,module,exports){
 (function(){/* SockJS client, version 0.3.1.7.ga67f.dirty, http://sockjs.org, MIT License
 
 Copyright (c) 2011-2012 VMware, Inc.
@@ -3115,5 +3218,175 @@ if (typeof module === 'object' && module && module.exports) {
 
 
 })()
-},{}]},{},[1])
+},{}],9:[function(require,module,exports){
+(function(process){var Stream = require('stream')
+
+// through
+//
+// a stream that does nothing but re-emit the input.
+// useful for aggregating a series of changing but not ending streams into one stream)
+
+
+
+exports = module.exports = through
+through.through = through
+
+//create a readable writable stream.
+
+function through (write, end) {
+  write = write || function (data) { this.emit('data', data) }
+  end = end || function () { this.emit('end') }
+
+  var ended = false, destroyed = false
+  var stream = new Stream(), buffer = []
+  stream.buffer = buffer
+  stream.readable = stream.writable = true
+  stream.paused = false
+  stream.write = function (data) {
+    write.call(this, data)
+    return !stream.paused
+  }
+
+  function drain() {
+    while(buffer.length && !stream.paused) {
+      var data = buffer.shift()
+      if(null === data)
+        return stream.emit('end')
+      else
+        stream.emit('data', data)
+    }
+  }
+
+  stream.queue = function (data) {
+    buffer.push(data)
+    drain()
+  }
+
+  //this will be registered as the first 'end' listener
+  //must call destroy next tick, to make sure we're after any
+  //stream piped from here.
+  //this is only a problem if end is not emitted synchronously.
+  //a nicer way to do this is to make sure this is the last listener for 'end'
+
+  stream.on('end', function () {
+    stream.readable = false
+    if(!stream.writable)
+      process.nextTick(function () {
+        stream.destroy()
+      })
+  })
+
+  function _end () {
+    stream.writable = false
+    end.call(stream)
+    if(!stream.readable)
+      stream.destroy()
+  }
+
+  stream.end = function (data) {
+    if(ended) return
+    ended = true
+    if(arguments.length) stream.write(data)
+    _end() // will emit or queue
+  }
+
+  stream.destroy = function () {
+    if(destroyed) return
+    destroyed = true
+    ended = true
+    buffer.length = 0
+    stream.writable = stream.readable = false
+    stream.emit('close')
+  }
+
+  stream.pause = function () {
+    if(stream.paused) return
+    stream.paused = true
+    stream.emit('pause')
+  }
+  stream.resume = function () {
+    if(stream.paused) {
+      stream.paused = false
+    }
+    drain()
+    //may have become paused again,
+    //as drain emits 'data'.
+    if(!stream.paused)
+      stream.emit('drain')
+  }
+  return stream
+}
+
+
+})(require("__browserify_process"))
+},{"stream":4,"__browserify_process":7}],10:[function(require,module,exports){
+
+var EventEmitter = require('events').EventEmitter
+
+exports = module.exports = function (wrapper) {
+
+  if('function' == typeof wrapper)
+    return wrapper
+  
+  return exports[wrapper] || exports.json
+}
+
+exports.json = function (stream) {
+
+  var write = stream.write
+  var soFar = ''
+
+  function parse (line) {
+    var js
+    try {
+      js = JSON.parse(line)
+      //ignore lines of whitespace...
+    } catch (err) { 
+      return console.error('invalid JSON', line)
+    }
+    if(js !== undefined)
+      write.call(stream, js)
+  }
+
+  function onData (data) {
+    var lines = (soFar + data).split('\n')
+    soFar = lines.pop()
+    while(lines.length) {
+      parse(lines.shift())
+    }
+  }
+
+  stream.write = onData
+  
+  var end = stream.end
+
+  stream.end = function (data) {
+    if(data)
+      stream.write(data)
+    //if there is any left over...
+    if(soFar) {
+      parse(soFar)
+    }
+    return end.call(stream)
+  }
+
+  stream.emit = function (event, data) {
+
+    if(event == 'data') {
+      data = JSON.stringify(data) + '\n'
+    }
+    //since all stream events only use one argument, this is okay...
+    EventEmitter.prototype.emit.call(stream, event, data)
+  }
+
+  return stream
+//  return es.pipeline(es.split(), es.parse(), stream, es.stringify())
+}
+
+exports.raw = function (stream) {
+  return stream
+}
+
+
+},{"events":5}]},{},[1])
 ;
