@@ -54,3 +54,7 @@ A simple scuttlebutt example, where the server sets a key and the client reacts 
 
 A ping pong between client and server using remote events to emit pings and
 pongs
+
+###[Auth-Stream](https://github.com/Raynos/auth-stream)
+
+A basic implementation for an authenticated stream
