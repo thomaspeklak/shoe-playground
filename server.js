@@ -2,6 +2,9 @@
 
 var shoe = require("shoe");
 var http = require("http");
+var MultiChannel = require("multi-channel-mdm");
+var MuxDemux = require("mux-demux");
+var channel = MultiChannel();
 
 var ecstatic = require("ecstatic")(__dirname + "/static");
 
