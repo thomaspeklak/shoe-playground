@@ -58,3 +58,8 @@ pongs
 ###[Auth-Stream](https://github.com/Raynos/auth-stream)
 
 A basic implementation for an authenticated stream
+
+###[Tuple-Stream](https://github.com/substack/tuple-stream) + [Hyperspace](https://github.com/substack/hyperspace)
+
+Use tuple-stream on the server to sync two seperate streams together and use [hyperspace](https://github.com/substack/hyperspace) on the client to render table rows from the data.
+
