@@ -19,8 +19,11 @@
     var render = function () {
         return hyperspace(html, function (row) {
             return {
-                ".first": row[0],
-                ".second": row[1]
+                "tr": {
+                    class: parseInt(row.first) < parseInt(row.second) ? "row-first" : "row-second"
+                },
+                ".first": row.first,
+                ".second": row.second
             };
         });
     };

@@ -29,7 +29,7 @@
     "multi-channel-mdm": "~0.5.1",
     "kv": "~1.1.1",
     "tuple-stream": "0.0.2",
-    "hyperspace": "~0.1.1",
+    "hyperspace": "git://github.com/thomaspeklak/hyperspace.git",
     "through": "~2.3.4"
   },
   "devDependencies": {
