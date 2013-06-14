@@ -27,7 +27,10 @@
     "crdt": "~3.5.1",
     "scuttlebutt": "~5.5.20",
     "multi-channel-mdm": "~0.5.1",
-    "kv": "~1.1.1"
+    "kv": "~1.1.1",
+    "tuple-stream": "0.0.2",
+    "hyperspace": "~0.1.1",
+    "through": "~2.3.4"
   },
   "devDependencies": {
     "browserify": "*",

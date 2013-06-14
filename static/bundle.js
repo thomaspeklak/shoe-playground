@@ -2,9 +2,199 @@
 (function () {
     "use strict";
     var shoe = require("shoe");
+    var hyperspace = require("hyperspace");
+    var through = require("through");
+
+    var stream = shoe("/socket");
+
+    var transform = through(function (data) {
+        var split = data.split(",");
+        this.queue({
+            first: split[0],
+            second: split[1]
+        });
+    });
+
+    var html = "<tr><td class='first'></td><td class='second'></td></tr>";
+
+    var render = function () {
+        return hyperspace(html, function (row) {
+            return {
+                ".first": row[0],
+                ".second": row[1]
+            };
+        });
+    };
+
+    stream.pipe(transform).pipe(render().appendTo("#messages"));
 }());
 
-},{"shoe":2}],3:[function(require,module,exports){
+},{"shoe":2,"hyperspace":3,"through":4}],5:[function(require,module,exports){
+// shim for using process in browser
+
+var process = module.exports = {};
+
+process.nextTick = (function () {
+    var canSetImmediate = typeof window !== 'undefined'
+    && window.setImmediate;
+    var canPost = typeof window !== 'undefined'
+    && window.postMessage && window.addEventListener
+    ;
+
+    if (canSetImmediate) {
+        return function (f) { return window.setImmediate(f) };
+    }
+
+    if (canPost) {
+        var queue = [];
+        window.addEventListener('message', function (ev) {
+            if (ev.source === window && ev.data === 'process-tick') {
+                ev.stopPropagation();
+                if (queue.length > 0) {
+                    var fn = queue.shift();
+                    fn();
+                }
+            }
+        }, true);
+
+        return function nextTick(fn) {
+            queue.push(fn);
+            window.postMessage('process-tick', '*');
+        };
+    }
+
+    return function nextTick(fn) {
+        setTimeout(fn, 0);
+    };
+})();
+
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+}
+
+// TODO(shtylman)
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+
+},{}],4:[function(require,module,exports){
+(function(process){var Stream = require('stream')
+
+// through
+//
+// a stream that does nothing but re-emit the input.
+// useful for aggregating a series of changing but not ending streams into one stream)
+
+exports = module.exports = through
+through.through = through
+
+//create a readable writable stream.
+
+function through (write, end, opts) {
+  write = write || function (data) { this.queue(data) }
+  end = end || function () { this.queue(null) }
+
+  var ended = false, destroyed = false, buffer = [], _ended = false
+  var stream = new Stream()
+  stream.readable = stream.writable = true
+  stream.paused = false
+
+//  stream.autoPause   = !(opts && opts.autoPause   === false)
+  stream.autoDestroy = !(opts && opts.autoDestroy === false)
+
+  stream.write = function (data) {
+    write.call(this, data)
+    return !stream.paused
+  }
+
+  function drain() {
+    while(buffer.length && !stream.paused) {
+      var data = buffer.shift()
+      if(null === data)
+        return stream.emit('end')
+      else
+        stream.emit('data', data)
+    }
+  }
+
+  stream.queue = stream.push = function (data) {
+//    console.error(ended)
+    if(_ended) return stream
+    if(data == null) _ended = true
+    buffer.push(data)
+    drain()
+    return stream
+  }
+
+  //this will be registered as the first 'end' listener
+  //must call destroy next tick, to make sure we're after any
+  //stream piped from here.
+  //this is only a problem if end is not emitted synchronously.
+  //a nicer way to do this is to make sure this is the last listener for 'end'
+
+  stream.on('end', function () {
+    stream.readable = false
+    if(!stream.writable && stream.autoDestroy)
+      process.nextTick(function () {
+        stream.destroy()
+      })
+  })
+
+  function _end () {
+    stream.writable = false
+    end.call(stream)
+    if(!stream.readable && stream.autoDestroy)
+      stream.destroy()
+  }
+
+  stream.end = function (data) {
+    if(ended) return
+    ended = true
+    if(arguments.length) stream.write(data)
+    _end() // will emit or queue
+    return stream
+  }
+
+  stream.destroy = function () {
+    if(destroyed) return
+    destroyed = true
+    ended = true
+    buffer.length = 0
+    stream.writable = stream.readable = false
+    stream.emit('close')
+    return stream
+  }
+
+  stream.pause = function () {
+    if(stream.paused) return
+    stream.paused = true
+    return stream
+  }
+
+  stream.resume = function () {
+    if(stream.paused) {
+      stream.paused = false
+      stream.emit('resume')
+    }
+    drain()
+    //may have become paused again,
+    //as drain emits 'data'.
+    if(!stream.paused)
+      stream.emit('drain')
+    return stream
+  }
+  return stream
+}
+
+
+})(require("__browserify_process"))
+},{"stream":6,"__browserify_process":5}],6:[function(require,module,exports){
 var events = require('events');
 var util = require('util');
 
@@ -125,61 +315,7 @@ Stream.prototype.pipe = function(dest, options) {
   return dest;
 };
 
-},{"events":4,"util":5}],6:[function(require,module,exports){
-// shim for using process in browser
-
-var process = module.exports = {};
-
-process.nextTick = (function () {
-    var canSetImmediate = typeof window !== 'undefined'
-    && window.setImmediate;
-    var canPost = typeof window !== 'undefined'
-    && window.postMessage && window.addEventListener
-    ;
-
-    if (canSetImmediate) {
-        return function (f) { return window.setImmediate(f) };
-    }
-
-    if (canPost) {
-        var queue = [];
-        window.addEventListener('message', function (ev) {
-            if (ev.source === window && ev.data === 'process-tick') {
-                ev.stopPropagation();
-                if (queue.length > 0) {
-                    var fn = queue.shift();
-                    fn();
-                }
-            }
-        }, true);
-
-        return function nextTick(fn) {
-            queue.push(fn);
-            window.postMessage('process-tick', '*');
-        };
-    }
-
-    return function nextTick(fn) {
-        setTimeout(fn, 0);
-    };
-})();
-
-process.title = 'browser';
-process.browser = true;
-process.env = {};
-process.argv = [];
-
-process.binding = function (name) {
-    throw new Error('process.binding is not supported');
-}
-
-// TODO(shtylman)
-process.cwd = function () { return '/' };
-process.chdir = function (dir) {
-    throw new Error('process.chdir is not supported');
-};
-
-},{}],4:[function(require,module,exports){
+},{"events":7,"util":8}],7:[function(require,module,exports){
 (function(process){if (!process.EventEmitter) process.EventEmitter = function () {};
 
 var EventEmitter = exports.EventEmitter = process.EventEmitter;
@@ -365,7 +501,7 @@ EventEmitter.prototype.listeners = function(type) {
 };
 
 })(require("__browserify_process"))
-},{"__browserify_process":6}],5:[function(require,module,exports){
+},{"__browserify_process":5}],8:[function(require,module,exports){
 var events = require('events');
 
 exports.isArray = isArray;
@@ -718,7 +854,123 @@ exports.format = function(f) {
   return str;
 };
 
-},{"events":4}],2:[function(require,module,exports){
+},{"events":7}],3:[function(require,module,exports){
+var through = require('through');
+var hyperglue = require('hyperglue');
+var domify = require('domify');
+
+module.exports = function (html, cb) {
+    var className = classNameOf(html);
+    
+    var tr = through(function (line) {
+        var row;
+        if (isInt8Array(line)) {
+            var s = '';
+            for (var i = 0; i < line.length; i++) s += line[i];
+            line = s;
+        }
+        if (typeof line === 'string') {
+            try { row = JSON.parse(line) }
+            catch (err) { this.emit('error', err) }
+        }
+        else row = line;
+        
+        var res = cb.call(this, row);
+        if (res) {
+            var elem = hyperglue(html, res);
+            this.emit('element', elem);
+            this.queue(elem.outerHTML);
+        }
+    });
+    
+    tr.prependTo = function (t) {
+        var target = getTarget(t);
+        
+        tr.on('element', function (elem) {
+            target.insertBefore(elem, target.childNodes[0]);
+        });
+        return tr;
+    };
+    
+    tr.appendTo = function (t) {
+        var target = getTarget(t);
+        
+        tr.on('element', function (elem) {
+            target.appendChild(elem);
+        });
+        return tr;
+    };
+    
+    tr.sortTo = function (t, cmp) {
+        if (typeof cmp !== 'function') {
+            throw new Error('comparison function not provided');
+        }
+        var target = getElem(t);
+        
+        tr.on('element', function (elem) {
+            var nodes = target.getElementsByClassName(className);
+            for (var i = 0; i < nodes.length; i++) {
+                var n = cmp(elem, nodes[i]);
+                if (n < 0) {
+                    if (hasChild(target, elem)) {
+                        target.removeChild(elem);
+                    }
+                    target.insertBefore(elem, nodes[i]);
+                    return;
+                }
+            }
+            target.appendChild(elem);
+        });
+        
+        getTarget(t, target);
+        return tr;
+    };
+    
+    var emittedElements = false;
+    return tr;
+    
+    function getTarget (t, target) {
+        if (!target) target = getElem(t);
+        if (!className) return target;
+        if (emittedElements) return target;
+        emittedElements = true;
+        
+        var elems = target.getElementsByClassName(className);
+        for (var i = 0; i < elems.length; i++) {
+            tr.emit('element', elems[i]);
+        }
+        return target;
+    }
+};
+
+function classNameOf (html) {
+    var elems = domify(html);
+    if (elems.length) return elems[0].getAttribute('class');
+}
+
+function hasChild (node, child) {
+    var nodes = node.childNodes;
+    for (var i = 0; i < nodes.length; i++) {
+        if (nodes[i] === child) return true;
+    }
+    return false;
+}
+
+function getElem (target) {
+    if (typeof target === 'string') {
+        return document.querySelector(target);
+    }
+    return target;
+}
+
+function isInt8Array (x) {
+    return x && typeof x === 'object'
+        && line.constructor === 'function'
+        && line.constructor.name === 'Int8Array'
+    ;
+}
+
+},{"hyperglue":9,"domify":10,"through":11}],2:[function(require,module,exports){
 var Stream = require('stream');
 var sockjs = require('sockjs-client');
 
@@ -789,7 +1041,199 @@ module.exports = function (uri, cb) {
     return stream;
 };
 
-},{"stream":3,"sockjs-client":7}],7:[function(require,module,exports){
+},{"stream":6,"sockjs-client":12}],11:[function(require,module,exports){
+(function(process){var Stream = require('stream')
+
+// through
+//
+// a stream that does nothing but re-emit the input.
+// useful for aggregating a series of changing but not ending streams into one stream)
+
+exports = module.exports = through
+through.through = through
+
+//create a readable writable stream.
+
+function through (write, end, opts) {
+  write = write || function (data) { this.queue(data) }
+  end = end || function () { this.queue(null) }
+
+  var ended = false, destroyed = false, buffer = [], _ended = false
+  var stream = new Stream()
+  stream.readable = stream.writable = true
+  stream.paused = false
+
+//  stream.autoPause   = !(opts && opts.autoPause   === false)
+  stream.autoDestroy = !(opts && opts.autoDestroy === false)
+
+  stream.write = function (data) {
+    write.call(this, data)
+    return !stream.paused
+  }
+
+  function drain() {
+    while(buffer.length && !stream.paused) {
+      var data = buffer.shift()
+      if(null === data)
+        return stream.emit('end')
+      else
+        stream.emit('data', data)
+    }
+  }
+
+  stream.queue = stream.push = function (data) {
+//    console.error(ended)
+    if(_ended) return stream
+    if(data == null) _ended = true
+    buffer.push(data)
+    drain()
+    return stream
+  }
+
+  //this will be registered as the first 'end' listener
+  //must call destroy next tick, to make sure we're after any
+  //stream piped from here.
+  //this is only a problem if end is not emitted synchronously.
+  //a nicer way to do this is to make sure this is the last listener for 'end'
+
+  stream.on('end', function () {
+    stream.readable = false
+    if(!stream.writable && stream.autoDestroy)
+      process.nextTick(function () {
+        stream.destroy()
+      })
+  })
+
+  function _end () {
+    stream.writable = false
+    end.call(stream)
+    if(!stream.readable && stream.autoDestroy)
+      stream.destroy()
+  }
+
+  stream.end = function (data) {
+    if(ended) return
+    ended = true
+    if(arguments.length) stream.write(data)
+    _end() // will emit or queue
+    return stream
+  }
+
+  stream.destroy = function () {
+    if(destroyed) return
+    destroyed = true
+    ended = true
+    buffer.length = 0
+    stream.writable = stream.readable = false
+    stream.emit('close')
+    return stream
+  }
+
+  stream.pause = function () {
+    if(stream.paused) return
+    stream.paused = true
+    return stream
+  }
+
+  stream.resume = function () {
+    if(stream.paused) {
+      stream.paused = false
+      stream.emit('resume')
+    }
+    drain()
+    //may have become paused again,
+    //as drain emits 'data'.
+    if(!stream.paused)
+      stream.emit('drain')
+    return stream
+  }
+  return stream
+}
+
+
+})(require("__browserify_process"))
+},{"stream":6,"__browserify_process":5}],10:[function(require,module,exports){
+
+/**
+ * Expose `parse`.
+ */
+
+module.exports = parse;
+
+/**
+ * Wrap map from jquery.
+ */
+
+var map = {
+  option: [1, '<select multiple="multiple">', '</select>'],
+  optgroup: [1, '<select multiple="multiple">', '</select>'],
+  legend: [1, '<fieldset>', '</fieldset>'],
+  thead: [1, '<table>', '</table>'],
+  tbody: [1, '<table>', '</table>'],
+  tfoot: [1, '<table>', '</table>'],
+  colgroup: [1, '<table>', '</table>'],
+  caption: [1, '<table>', '</table>'],
+  tr: [2, '<table><tbody>', '</tbody></table>'],
+  td: [3, '<table><tbody><tr>', '</tr></tbody></table>'],
+  th: [3, '<table><tbody><tr>', '</tr></tbody></table>'],
+  col: [2, '<table><tbody></tbody><colgroup>', '</colgroup></table>'],
+  _default: [0, '', '']
+};
+
+/**
+ * Parse `html` and return the children.
+ *
+ * @param {String} html
+ * @return {Array}
+ * @api private
+ */
+
+function parse(html) {
+  if ('string' != typeof html) throw new TypeError('String expected');
+  
+  // tag name
+  var m = /<([\w:]+)/.exec(html);
+  if (!m) throw new Error('No elements were generated.');
+  var tag = m[1];
+  
+  // body support
+  if (tag == 'body') {
+    var el = document.createElement('html');
+    el.innerHTML = html;
+    return [el.removeChild(el.lastChild)];
+  }
+  
+  // wrap map
+  var wrap = map[tag] || map._default;
+  var depth = wrap[0];
+  var prefix = wrap[1];
+  var suffix = wrap[2];
+  var el = document.createElement('div');
+  el.innerHTML = prefix + html + suffix;
+  while (depth--) el = el.lastChild;
+
+  return orphan(el.children);
+}
+
+/**
+ * Orphan `els` and return an array.
+ *
+ * @param {NodeList} els
+ * @return {Array}
+ * @api private
+ */
+
+function orphan(els) {
+  var ret = [];
+
+  while (els.length) {
+    ret.push(els[0].parentNode.removeChild(els[0]));
+  }
+
+  return ret;
+}
+
+},{}],12:[function(require,module,exports){
 (function(){/* SockJS client, version 0.3.1.7.ga67f.dirty, http://sockjs.org, MIT License
 
 Copyright (c) 2011-2012 VMware, Inc.
@@ -3115,5 +3559,180 @@ if (typeof module === 'object' && module && module.exports) {
 
 
 })()
+},{}],9:[function(require,module,exports){
+var domify = require('domify');
+var query = require('queryselector');
+
+module.exports = hyperglue;
+function hyperglue (src, updates) {
+    if (!updates) updates = {};
+    
+    var dom = typeof src === 'object'
+        ? [ src ]
+        : domify(src)
+    ;
+    
+    forEach(objectKeys(updates), function (selector) {
+        var value = updates[selector];
+        forEach(dom, function (d) {
+            var nodes = query.all(d, selector);
+            if (nodes.length === 0) return;
+            for (var i = 0; i < nodes.length; i++) {
+                bind(nodes[i], value);
+            }
+        });
+    });
+    
+    return dom.length === 1
+        ? dom[0]
+        : dom
+    ;
+};
+
+function bind (node, value) {
+    if (isElement(value)) {
+        node.innerHTML = '';
+        node.appendChild(value);
+    }
+    else if (isArray(value)) {
+        for (var i = 0; i < value.length; i++) {
+            var e = hyperglue(node.cloneNode(true), value[i]);
+            node.parentNode.insertBefore(e, node);
+        }
+        node.parentNode.removeChild(node);
+    }
+    else if (value && typeof value === 'object') {
+        forEach(objectKeys(value), function (key) {
+            if (key === '_text') {
+                setText(node, value[key]);
+            }
+            else if (key === '_html' && isElement(value[key])) {
+                node.innerHTML = '';
+                node.appendChild(value[key]);
+            }
+            else if (key === '_html') {
+                node.innerHTML = value[key];
+            }
+            else node.setAttribute(key, value[key]);
+        });
+    }
+    else setText(node, value);
+}
+
+function forEach(xs, f) {
+    if (xs.forEach) return xs.forEach(f);
+    for (var i = 0; i < xs.length; i++) f(xs[i], i)
+}
+
+var objectKeys = Object.keys || function (obj) {
+    var res = [];
+    for (var key in obj) res.push(key);
+    return res;
+};
+
+function isElement (e) {
+    return e && typeof e === 'object' && e.childNodes
+        && (typeof e.appendChild === 'function'
+        || typeof e.appendChild === 'object')
+    ;
+}
+
+var isArray = Array.isArray || function (xs) {
+    return Object.prototype.toString.call(xs) === '[object Array]';
+};
+
+function setText (e, s) {
+    e.innerHTML = '';
+    var txt = document.createTextNode(s);
+    e.appendChild(txt);
+}
+
+},{"queryselector":13,"domify":10}],13:[function(require,module,exports){
+var map = require('wrap-map');
+
+module.exports = query;
+module.exports.all = queryAll;
+
+function query (el, selector) {
+  return select(el, selector);
+}
+
+function queryAll (el, selector) {
+  return select(el, selector, true);
+}
+
+function select (el, selector, all) {
+  var wrap = map[el.tagName.toLowerCase()] || map._default;
+  var depth = wrap.depth;
+
+  var container = document.createElement('div');
+  container.innerHTML = wrap.prefix + wrap.suffix;
+
+  while (depth--) container = container.childNodes[0];
+  container.appendChild(el);
+
+  return container[all
+    ? 'querySelectorAll'
+    : 'querySelector'](selector);
+}
+
+},{"wrap-map":14}],14:[function(require,module,exports){
+
+/**
+ * Wrap map.
+ */
+
+var map = {
+  option: {
+    depth: 1,
+    prefix: '<select multiple="multiple">',
+    suffix: '</select>'
+  },
+  optgroup: {
+    depth: 1,
+    prefix: '<select multiple="multiple">',
+    suffix: '</select>'
+  },
+  legend: {
+    depth: 1,
+    prefix: '<fieldset>',
+    suffix: '</fieldset>'
+  },
+  tr: {
+    depth: 2,
+    prefix: '<table><tbody>',
+    suffix: '</tbody></table>'
+  },
+  col: {
+    depth: 2,
+    prefix: '<table><tbody></tbody><colgroup>',
+    suffix: '</colgroup></table>'
+  },
+  _default: {
+    depth: 0,
+    prefix: '',
+    suffix: ''
+  }
+};
+
+map.thead = map.tbody = map.tfoot = map.colgroup = map.caption = {
+  depth: 1,
+  prefix: '<table>',
+  suffix: '</table>'
+};
+
+map.td = map.th = {
+  depth: 3,
+  prefix: '<table><tbody><tr>',
+  suffix: '</tr></tbody></table>'
+};
+
+/**
+ * Expose `map`.
+ */
+
+module.exports = map;
+
+
 },{}]},{},[1])
 ;
