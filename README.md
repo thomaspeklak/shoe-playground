@@ -50,7 +50,7 @@ A simple scuttlebutt example, where the server sets a key and the client reacts 
 - Use a crdt-Sequence to display the 5 largest random numbers from the server.
 - Use [reconnect](https://github.com/dominictarr/reconnect) to connect to the server after a connection failure
 
-###[RemoteEvents]{https://github.com/dominictarr/remote-events)
+###[RemoteEvents](https://github.com/dominictarr/remote-events)
 
 A ping pong between client and server using remote events to emit pings and
 pongs
