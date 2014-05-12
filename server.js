@@ -5,6 +5,7 @@ var http = require("http");
 var dnode = require("dnode");
 var MuxDemux = require("mux-demux");
 var Doc = require("crdt").Doc;
+var doc = new Doc;
 
 var ecstatic = require("ecstatic")(__dirname + "/static");
 
@@ -13,7 +14,6 @@ server.listen(3000);
 
 var sock = shoe(function (stream) {
     console.dir("CONNECTION");
-    var doc = new Doc;
     var docStream = doc.createStream();
     var timer;
 
